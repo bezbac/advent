@@ -1,4 +1,4 @@
-use std::fs;
+use std::{collections::HashMap, fs};
 
 fn main() {
     let input = fs::read_to_string("./inputs/day1.txt").expect("Failed to read file");
@@ -30,5 +30,23 @@ fn main() {
         .map(|(a, b)| (*a as isize - *b as isize).abs())
         .sum();
 
-    println!("Result: {}", result);
+    println!("Result (Part 1): {}", result);
+
+    let mut occurences_of_a_in_b: HashMap<usize, usize> = HashMap::new();
+
+    for x in b {
+        let entry = occurences_of_a_in_b.entry(x).or_insert(0);
+        *entry += 1;
+    }
+
+    let result: isize = a
+        .iter()
+        .map(|x| {
+            // Multiply the number from a with the number of occurences in b
+            let factor = *occurences_of_a_in_b.get(x).unwrap_or(&0) as isize;
+            *x as isize * factor
+        })
+        .sum();
+
+    println!("Result (Part 2): {}", result);
 }
