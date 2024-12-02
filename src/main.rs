@@ -1,53 +1,78 @@
-use anyhow::Result;
-use std::{collections::HashMap, fs};
+use std::fs;
 
-fn main() -> Result<()> {
-    let input = fs::read_to_string("./inputs/day1.txt").expect("Failed to read file");
+fn check_if_nums_are_safe(nums: &[isize]) -> bool {
+    let mut i = 2;
+    while i < nums.len() {
+        let current = nums[i];
+        let prev = nums[i - 1];
+        let prevprev = nums[i - 2];
 
-    let mut a = Vec::new();
-    let mut b = Vec::new();
+        let current_diff = current - prev;
+        let prev_diff = prev - prevprev;
 
-    for line in input.lines() {
-        let mut split = line.trim().split("   ");
+        if current_diff.abs() > 3 || current_diff == 0 {
+            return false;
+        }
 
-        let a_num: isize = split
-            .next()
-            .expect("Could not read first number in line")
-            .parse()?;
+        if prev_diff.abs() > 3 || prev_diff == 0 {
+            return false;
+        }
 
-        let b_num: isize = split
-            .next()
-            .expect("Could not read second number in line")
-            .parse()?;
+        if current_diff < 0 && prev_diff > 0 || current_diff > 0 && prev_diff < 0 {
+            // One is an increase, the other is a decrease
+            return false;
+        }
 
-        a.push(a_num);
-        b.push(b_num);
+        i += 1;
     }
 
-    a.sort_unstable();
-    b.sort_unstable();
+    true
+}
 
-    let result: isize = a.iter().zip(b.iter()).map(|(a, b)| (a - b).abs()).sum();
+fn main() {
+    let input = fs::read_to_string("./inputs/day2.txt").expect("Failed to read file");
 
-    println!("Result (Part 1): {result}");
+    let mut safe = 0;
+    for line in input.lines() {
+        let nums: Vec<isize> = line
+            .trim()
+            .split(' ')
+            .map(|x| x.parse::<isize>().unwrap())
+            .collect();
 
-    let occurences_of_a_in_b: HashMap<isize, isize> =
-        b.iter().fold(HashMap::new(), |mut acc, x| {
-            let entry = acc.entry(*x).or_insert(0);
-            *entry += 1;
-            acc
-        });
+        let is_safe = check_if_nums_are_safe(&nums);
 
-    let result: isize = a
-        .iter()
-        .map(|x| {
-            // Multiply the number from a with the number of occurences in b
-            let factor = occurences_of_a_in_b.get(x).unwrap_or(&0);
-            x * factor
-        })
-        .sum();
+        if is_safe {
+            safe += 1;
+        }
+    }
 
-    println!("Result (Part 2): {result}");
+    println!("Result (Part 1): {safe}");
+}
 
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsafe_nums() {
+        assert_eq!(check_if_nums_are_safe(&[0, 0, 0]), false);
+        assert_eq!(check_if_nums_are_safe(&[1, 2, 0]), false);
+        assert_eq!(check_if_nums_are_safe(&[2, 1, 3]), false);
+        assert_eq!(check_if_nums_are_safe(&[-10, -7, 0]), false);
+        assert_eq!(check_if_nums_are_safe(&[0, 2, 6]), false);
+        assert_eq!(check_if_nums_are_safe(&[10, 8, 4]), false);
+        assert_eq!(check_if_nums_are_safe(&[1, 2, 7, 8, 9]), false);
+        assert_eq!(check_if_nums_are_safe(&[9, 7, 6, 2, 1]), false);
+        assert_eq!(check_if_nums_are_safe(&[1, 3, 2, 4, 5]), false);
+        assert_eq!(check_if_nums_are_safe(&[8, 6, 4, 4, 1]), false);
+        assert_eq!(check_if_nums_are_safe(&[10, 6, 4, 3, 1]), false);
+    }
+
+    #[test]
+    fn safe_nums() {
+        assert_eq!(check_if_nums_are_safe(&[7, 6, 4, 2, 1]), true);
+        assert_eq!(check_if_nums_are_safe(&[94, 96, 97, 98, 99]), true);
+        assert_eq!(check_if_nums_are_safe(&[1, 3, 6, 7, 9]), true);
+    }
 }
