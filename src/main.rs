@@ -1,97 +1,90 @@
 use std::fs;
 
-fn check_if_nums_are_safe(nums: &[isize]) -> bool {
-    let mut i = 2;
-    while i < nums.len() {
-        let current = nums[i];
-        let prev = nums[i - 1];
-        let prevprev = nums[i - 2];
-
-        let current_diff = current - prev;
-        let prev_diff = prev - prevprev;
-
-        if current_diff.abs() > 3 || current_diff == 0 {
-            return false;
-        }
-
-        if prev_diff.abs() > 3 || prev_diff == 0 {
-            return false;
-        }
-
-        if current_diff < 0 && prev_diff > 0 || current_diff > 0 && prev_diff < 0 {
-            // One is an increase, the other is a decrease
-            return false;
-        }
-
-        i += 1;
-    }
-
-    true
+#[derive(PartialEq, Debug)]
+struct MultiplicationInstruction {
+    a: i64,
+    b: i64,
 }
 
-fn check_if_nums_are_safe_with_dampener(nums: &[isize]) -> bool {
-    if check_if_nums_are_safe(nums) {
-        return true;
-    }
+fn parse(input: &str) -> Vec<MultiplicationInstruction> {
+    let mut result = Vec::new();
 
-    let mut safe_permutations: Vec<usize> = Vec::new();
+    let mut iter = input.chars().peekable();
 
-    for i in 0..nums.len() {
-        let nums_without_i = nums
-            .iter()
-            .enumerate()
-            .filter(|(j, _)| *j != i)
-            .map(|(_, x)| *x)
-            .collect::<Vec<isize>>();
+    while let Some(char) = iter.next() {
+        if char == 'm' {
+            // Expect next to be 'u'
+            let next = iter.next();
+            if next != Some('u') {
+                continue;
+            }
 
-        let is_safe = check_if_nums_are_safe(&nums_without_i);
+            // Expect next to be 'l'
+            let next = iter.next();
+            if next != Some('l') {
+                continue;
+            }
 
-        if is_safe {
-            safe_permutations.push(i);
+            // Expect next to be '('
+            let next = iter.next();
+            if next != Some('(') {
+                continue;
+            }
+
+            let mut a = Vec::new();
+            'num: while let Some(char) = iter.peek() {
+                if char.is_ascii_digit() {
+                    a.push(*char);
+                    iter.next();
+                } else {
+                    break 'num;
+                }
+            }
+
+            // Expect next to be ','
+            let next = iter.next();
+            if next != Some(',') {
+                continue;
+            }
+
+            let mut b = Vec::new();
+            'num: while let Some(char) = iter.peek() {
+                if char.is_ascii_digit() {
+                    b.push(*char);
+                    iter.next();
+                } else {
+                    break 'num;
+                }
+            }
+
+            // Expect next to be ')'
+            let next = iter.next();
+            if next != Some(')') {
+                continue;
+            }
+
+            result.push(MultiplicationInstruction {
+                a: a.iter().collect::<String>().parse().unwrap(),
+                b: b.iter().collect::<String>().parse().unwrap(),
+            });
         }
     }
 
-    if safe_permutations.len() == 0 {
-        return false;
-    }
+    result
+}
 
-    true
+fn execute(instructions: &[MultiplicationInstruction]) -> i64 {
+    instructions
+        .iter()
+        .fold(0, |acc, instruction| acc + instruction.a * instruction.b)
 }
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day2.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day3.txt").expect("Failed to read file");
 
-    let parsed: Vec<Vec<isize>> = input
-        .lines()
-        .map(|line| {
-            line.trim()
-                .split(' ')
-                .map(|x| x.parse::<isize>().unwrap())
-                .collect()
-        })
-        .collect();
+    let result = execute(&parse(&input));
 
-    let mut safe = 0;
-    for nums in &parsed {
-        let is_safe = check_if_nums_are_safe(&nums);
-        if is_safe {
-            safe += 1;
-        }
-    }
-
-    println!("Result (Part 1): {safe}");
-
-    // Part 2
-
-    let mut safe = 0;
-    for nums in &parsed {
-        let is_safe = check_if_nums_are_safe_with_dampener(&nums);
-        if is_safe {
-            safe += 1;
-        }
-    }
-
-    println!("Result (Part 2): {safe}");
+    println!("Result (Part 1): {result}");
 }
 
 #[cfg(test)]
@@ -99,36 +92,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unsafe_nums() {
-        assert_eq!(check_if_nums_are_safe(&[0, 0, 0]), false);
-        assert_eq!(check_if_nums_are_safe(&[1, 2, 0]), false);
-        assert_eq!(check_if_nums_are_safe(&[2, 1, 3]), false);
-        assert_eq!(check_if_nums_are_safe(&[-10, -7, 0]), false);
-        assert_eq!(check_if_nums_are_safe(&[0, 2, 6]), false);
-        assert_eq!(check_if_nums_are_safe(&[10, 8, 4]), false);
-        assert_eq!(check_if_nums_are_safe(&[1, 2, 7, 8, 9]), false);
-        assert_eq!(check_if_nums_are_safe(&[9, 7, 6, 2, 1]), false);
-        assert_eq!(check_if_nums_are_safe(&[1, 3, 2, 4, 5]), false);
-        assert_eq!(check_if_nums_are_safe(&[8, 6, 4, 4, 1]), false);
-        assert_eq!(check_if_nums_are_safe(&[10, 6, 4, 3, 1]), false);
+    fn test_parse() {
+        assert_eq!(
+            parse("xmul(2,4)%&mul[3,7]!@^do_not_mul(5,5)+mul(32,64]then(mul(11,8)mul(8,5))"),
+            vec![
+                MultiplicationInstruction { a: 2, b: 4 },
+                MultiplicationInstruction { a: 5, b: 5 },
+                MultiplicationInstruction { a: 11, b: 8 },
+                MultiplicationInstruction { a: 8, b: 5 },
+            ]
+        );
     }
 
     #[test]
-    fn safe_nums() {
-        assert_eq!(check_if_nums_are_safe(&[7, 6, 4, 2, 1]), true);
-        assert_eq!(check_if_nums_are_safe(&[94, 96, 97, 98, 99]), true);
-        assert_eq!(check_if_nums_are_safe(&[1, 3, 6, 7, 9]), true);
-    }
-
-    #[test]
-    fn dampener() {
-        assert_eq!(check_if_nums_are_safe_with_dampener(&[0, 0, 0, 0]), false);
-        assert_eq!(check_if_nums_are_safe_with_dampener(&[1, 2, 3, 4]), true);
-        assert_eq!(check_if_nums_are_safe_with_dampener(&[10, 6, 5, 4]), true);
-        assert_eq!(check_if_nums_are_safe_with_dampener(&[6, 6, 5, 4]), true);
-        assert_eq!(check_if_nums_are_safe_with_dampener(&[10, 9, 12, 8]), true);
-        assert_eq!(check_if_nums_are_safe_with_dampener(&[10, 9, -12, 8]), true);
-        assert_eq!(check_if_nums_are_safe_with_dampener(&[10, 9, 8, 7]), true);
-        assert_eq!(check_if_nums_are_safe_with_dampener(&[10, 9, 8, -7]), true);
+    fn test_parse_and_run() {
+        assert_eq!(
+            execute(&[
+                MultiplicationInstruction { a: 2, b: 4 },
+                MultiplicationInstruction { a: 5, b: 5 },
+                MultiplicationInstruction { a: 11, b: 8 },
+                MultiplicationInstruction { a: 8, b: 5 },
+            ]),
+            161
+        );
     }
 }
