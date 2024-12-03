@@ -1,16 +1,33 @@
 use std::fs;
 
 #[derive(PartialEq, Debug)]
-struct MultiplicationInstruction {
-    a: i64,
-    b: i64,
-}
-
-#[derive(PartialEq, Debug)]
 enum Instruction {
-    Multiplication(MultiplicationInstruction),
+    Multiplication { a: i64, b: i64 },
     Do,
     Dont,
+}
+
+macro_rules! expect_char {
+    ($iter:ident, $char:literal) => {
+        match $iter.next() {
+            Some(char) if char == $char => {}
+            _ => continue,
+        }
+    };
+}
+
+fn parse_number(iter: &mut std::iter::Peekable<std::str::Chars>) -> i64 {
+    let mut num_chars = Vec::new();
+    'num: while let Some(char) = iter.peek() {
+        if char.is_ascii_digit() {
+            num_chars.push(*char);
+            iter.next();
+        } else {
+            break 'num;
+        }
+    }
+
+    num_chars.iter().collect::<String>().parse().unwrap()
 }
 
 fn parse(input: &str) -> Vec<Instruction> {
@@ -20,104 +37,34 @@ fn parse(input: &str) -> Vec<Instruction> {
 
     while let Some(char) = iter.next() {
         if char == 'm' {
-            // Expect next to be 'u'
-            let next = iter.next();
-            if next != Some('u') {
-                continue;
-            }
+            expect_char!(iter, 'u');
+            expect_char!(iter, 'l');
+            expect_char!(iter, '(');
 
-            // Expect next to be 'l'
-            let next = iter.next();
-            if next != Some('l') {
-                continue;
-            }
+            let a = parse_number(&mut iter);
 
-            // Expect next to be '('
-            let next = iter.next();
-            if next != Some('(') {
-                continue;
-            }
+            expect_char!(iter, ',');
 
-            let mut a = Vec::new();
-            'num: while let Some(char) = iter.peek() {
-                if char.is_ascii_digit() {
-                    a.push(*char);
-                    iter.next();
-                } else {
-                    break 'num;
-                }
-            }
+            let b = parse_number(&mut iter);
 
-            // Expect next to be ','
-            let next = iter.next();
-            if next != Some(',') {
-                continue;
-            }
+            expect_char!(iter, ')');
 
-            let mut b = Vec::new();
-            'num: while let Some(char) = iter.peek() {
-                if char.is_ascii_digit() {
-                    b.push(*char);
-                    iter.next();
-                } else {
-                    break 'num;
-                }
-            }
-
-            // Expect next to be ')'
-            let next = iter.next();
-            if next != Some(')') {
-                continue;
-            }
-
-            result.push(Instruction::Multiplication(MultiplicationInstruction {
-                a: a.iter().collect::<String>().parse().unwrap(),
-                b: b.iter().collect::<String>().parse().unwrap(),
-            }));
+            result.push(Instruction::Multiplication { a, b });
         }
 
         if char == 'd' {
-            // Expect next to be 'o'
-            let next = iter.next();
-            if next != Some('o') {
-                continue;
-            }
+            expect_char!(iter, 'o');
 
             let next = iter.next();
 
             if next == Some('(') {
-                // Expect next to be ')'
-                let next = iter.next();
-                if next != Some(')') {
-                    continue;
-                }
-
+                expect_char!(iter, ')');
                 result.push(Instruction::Do);
             } else if next == Some('n') {
-                // Expect next to be '''
-                let next = iter.next();
-                if next != Some('\'') {
-                    continue;
-                }
-
-                // Expect next to be 't'
-                let next = iter.next();
-                if next != Some('t') {
-                    continue;
-                }
-
-                // Expect next to be '('
-                let next = iter.next();
-                if next != Some('(') {
-                    continue;
-                }
-
-                // Expect next to be ')'
-                let next = iter.next();
-                if next != Some(')') {
-                    continue;
-                }
-
+                expect_char!(iter, '\'');
+                expect_char!(iter, 't');
+                expect_char!(iter, '(');
+                expect_char!(iter, ')');
                 result.push(Instruction::Dont);
             } else {
                 continue;
@@ -130,14 +77,13 @@ fn parse(input: &str) -> Vec<Instruction> {
 
 fn execute(instructions: &[Instruction], respect_dos: bool) -> i64 {
     let mut result = 0;
-
     let mut enabled = true;
 
     for instruction in instructions {
         match instruction {
-            Instruction::Multiplication(multiplication) => {
+            Instruction::Multiplication { a, b } => {
                 if enabled {
-                    result += multiplication.a * multiplication.b;
+                    result += a * b;
                 }
             }
             Instruction::Do => {
@@ -175,10 +121,10 @@ mod tests {
         assert_eq!(
             parse("xmul(2,4)%&mul[3,7]!@^do_not_mul(5,5)+mul(32,64]then(mul(11,8)mul(8,5))"),
             vec![
-                Instruction::Multiplication(MultiplicationInstruction { a: 2, b: 4 }),
-                Instruction::Multiplication(MultiplicationInstruction { a: 5, b: 5 }),
-                Instruction::Multiplication(MultiplicationInstruction { a: 11, b: 8 }),
-                Instruction::Multiplication(MultiplicationInstruction { a: 8, b: 5 }),
+                Instruction::Multiplication { a: 2, b: 4 },
+                Instruction::Multiplication { a: 5, b: 5 },
+                Instruction::Multiplication { a: 11, b: 8 },
+                Instruction::Multiplication { a: 8, b: 5 },
             ]
         );
     }
@@ -188,12 +134,12 @@ mod tests {
         assert_eq!(
             parse("xmul(2,4)&mul[3,7]!^don't()_mul(5,5)+mul(32,64](mul(11,8)undo()?mul(8,5))"),
             vec![
-                Instruction::Multiplication(MultiplicationInstruction { a: 2, b: 4 }),
+                Instruction::Multiplication { a: 2, b: 4 },
                 Instruction::Dont,
-                Instruction::Multiplication(MultiplicationInstruction { a: 5, b: 5 }),
-                Instruction::Multiplication(MultiplicationInstruction { a: 11, b: 8 }),
+                Instruction::Multiplication { a: 5, b: 5 },
+                Instruction::Multiplication { a: 11, b: 8 },
                 Instruction::Do,
-                Instruction::Multiplication(MultiplicationInstruction { a: 8, b: 5 }),
+                Instruction::Multiplication { a: 8, b: 5 },
             ]
         );
     }
@@ -203,12 +149,12 @@ mod tests {
         assert_eq!(
             execute(
                 &[
-                    Instruction::Multiplication(MultiplicationInstruction { a: 2, b: 4 }),
+                    Instruction::Multiplication { a: 2, b: 4 },
                     Instruction::Dont,
-                    Instruction::Multiplication(MultiplicationInstruction { a: 5, b: 5 }),
-                    Instruction::Multiplication(MultiplicationInstruction { a: 11, b: 8 }),
+                    Instruction::Multiplication { a: 5, b: 5 },
+                    Instruction::Multiplication { a: 11, b: 8 },
                     Instruction::Do,
-                    Instruction::Multiplication(MultiplicationInstruction { a: 8, b: 5 }),
+                    Instruction::Multiplication { a: 8, b: 5 },
                 ],
                 false
             ),
@@ -221,12 +167,12 @@ mod tests {
         assert_eq!(
             execute(
                 &[
-                    Instruction::Multiplication(MultiplicationInstruction { a: 2, b: 4 }),
+                    Instruction::Multiplication { a: 2, b: 4 },
                     Instruction::Dont,
-                    Instruction::Multiplication(MultiplicationInstruction { a: 5, b: 5 }),
-                    Instruction::Multiplication(MultiplicationInstruction { a: 11, b: 8 }),
+                    Instruction::Multiplication { a: 5, b: 5 },
+                    Instruction::Multiplication { a: 11, b: 8 },
                     Instruction::Do,
-                    Instruction::Multiplication(MultiplicationInstruction { a: 8, b: 5 }),
+                    Instruction::Multiplication { a: 8, b: 5 },
                 ],
                 true
             ),
