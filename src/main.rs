@@ -1,24 +1,39 @@
 use std::fs;
 
-fn count_words_in_iter<I: Iterator<Item = char>>(chars: &mut I, word: &str) -> usize {
-    let word_chars = word.chars().collect::<Vec<_>>();
-
+fn count_word_occurences_in_iter<I: Iterator<Item = char>>(chars: &mut I, word: &str) -> usize {
     let mut result = 0;
-    let mut current = vec![];
-    for c in chars.by_ref() {
-        if c == word_chars[current.len()] {
-            current.push(c);
-        } else {
-            current.clear();
 
-            if c == word_chars[0] {
-                current.push(c);
+    let mut matched = 0;
+    let mut matched_rev = 0;
+    for c in chars.by_ref() {
+        if Some(c) == word.chars().nth(matched) {
+            matched += 1;
+        } else {
+            matched = 0;
+
+            if Some(c) == word.chars().nth(0) {
+                matched += 1;
             }
         }
 
-        if current.len() == word_chars.len() {
+        if matched == word.len() {
             result += 1;
-            current.clear();
+            matched = 0;
+        }
+
+        if Some(c) == word.chars().nth(word.len() - 1 - matched_rev) {
+            matched_rev += 1;
+        } else {
+            matched_rev = 0;
+
+            if Some(c) == word.chars().nth(word.len() - 1) {
+                matched_rev += 1;
+            }
+        }
+
+        if matched_rev == word.len() {
+            result += 1;
+            matched_rev = 0;
         }
     }
 
@@ -34,8 +49,8 @@ enum DiagonalDirection {
 }
 
 #[derive(Debug, Clone)]
-struct DiagonalIter {
-    chars: Vec<char>,
+struct DiagonalIter<'a> {
+    chars: &'a [char],
     direction: DiagonalDirection,
     x: usize,
     y: usize,
@@ -44,12 +59,15 @@ struct DiagonalIter {
     finished: bool,
 }
 
-impl DiagonalIter {
-    fn new(input: &str, direction: DiagonalDirection, start_x: usize, start_y: usize) -> Self {
-        let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
-        let height = input.lines().count();
-        let width = input.lines().next().unwrap().len();
-
+impl<'a> DiagonalIter<'a> {
+    fn new(
+        chars: &'a [char],
+        direction: DiagonalDirection,
+        width: usize,
+        height: usize,
+        start_x: usize,
+        start_y: usize,
+    ) -> Self {
         Self {
             chars,
 
@@ -66,7 +84,7 @@ impl DiagonalIter {
     }
 }
 
-impl Iterator for DiagonalIter {
+impl<'a> Iterator for DiagonalIter<'a> {
     type Item = char;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -96,44 +114,40 @@ impl Iterator for DiagonalIter {
             }
         }
 
-        if self.direction == DiagonalDirection::TopLeftToBottomRight {
+        if self.direction == DiagonalDirection::TopLeftToBottomRight
+            || self.direction == DiagonalDirection::BottomLeftToTopRight
+        {
             // Right column
             if self.x == self.width - 1 {
                 self.finished = true;
-            } else {
-                self.x += 1;
-                self.y += 1;
+                return result.copied();
             }
         }
 
-        if self.direction == DiagonalDirection::TopRightToBottomLeft {
+        if self.direction == DiagonalDirection::TopRightToBottomLeft
+            || self.direction == DiagonalDirection::BottomRightToTopLeft
+        {
             // Left column
             if self.x == 0 {
                 self.finished = true;
-            } else {
-                self.x -= 1;
-                self.y += 1;
+                return result.copied();
             }
         }
 
-        if self.direction == DiagonalDirection::BottomLeftToTopRight {
-            // Right column
-            if self.x == self.width - 1 {
-                self.finished = true;
-            } else {
-                self.x += 1;
-                self.y -= 1;
-            }
+        if self.direction == DiagonalDirection::TopLeftToBottomRight
+            || self.direction == DiagonalDirection::BottomLeftToTopRight
+        {
+            self.x += 1;
+        } else {
+            self.x -= 1;
         }
 
-        if self.direction == DiagonalDirection::BottomRightToTopLeft {
-            // Left column
-            if self.x == 0 {
-                self.finished = true;
-            } else {
-                self.x -= 1;
-                self.y -= 1;
-            }
+        if self.direction == DiagonalDirection::TopLeftToBottomRight
+            || self.direction == DiagonalDirection::TopRightToBottomLeft
+        {
+            self.y += 1;
+        } else {
+            self.y -= 1;
         }
 
         result.copied()
@@ -144,180 +158,101 @@ fn count_word_occurences(input: &str, word: &str) -> usize {
     let height = input.lines().count();
     let width = input.lines().next().unwrap().len();
 
+    let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
+
+    let create_diagonal_iter = |direction: DiagonalDirection, x: usize, y: usize| {
+        DiagonalIter::new(&chars, direction, width, height, x, y)
+    };
+
     let mut result = 0;
 
+    // Horizontal
     for line in input.lines() {
-        // Horizontal forward
-        let forward_count = count_words_in_iter(&mut line.chars().clone(), word);
-
-        // Horizontal backward
-        let backward_count = count_words_in_iter(&mut line.chars().rev().clone(), word);
-
-        result += forward_count + backward_count;
+        result += count_word_occurences_in_iter(&mut line.chars(), word);
     }
 
     // Vertical
     for i in 0..width {
-        let str: String = input
-            .chars()
-            .filter(|c| c != &'\n')
-            .skip(i)
-            .step_by(width)
-            .collect();
-
-        let forward_count = count_words_in_iter(&mut str.chars().clone(), word);
-        let backward_count = count_words_in_iter(&mut str.chars().rev().clone(), word);
-
-        result += forward_count + backward_count;
+        let mut iter = input.chars().filter(|c| c != &'\n').skip(i).step_by(width);
+        result += count_word_occurences_in_iter(&mut iter, word);
     }
 
     // Diagonal (top left to bottom right) starting at left
     for i in 0..height {
-        let start_x = 0;
-        let start_y = i;
-        let diagonal_iter = DiagonalIter::new(
-            input,
-            DiagonalDirection::TopLeftToBottomRight,
-            start_x,
-            start_y,
-        );
-
-        let str: String = diagonal_iter.collect();
-
-        let forward_count = count_words_in_iter(&mut str.chars().clone(), word);
-        let backward_count = count_words_in_iter(&mut str.chars().rev().clone(), word);
-
-        result += forward_count + backward_count;
+        let mut iter = create_diagonal_iter(DiagonalDirection::TopLeftToBottomRight, 0, i);
+        result += count_word_occurences_in_iter(&mut iter, word);
     }
 
     // Diagonal (top left to bottom right) starting at top
     // Skip the first line, as it was already covered by the previous loop
     for i in 1..width {
-        let start_x = i;
-        let start_y = 0;
-        let diagonal_iter = DiagonalIter::new(
-            input,
-            DiagonalDirection::TopLeftToBottomRight,
-            start_x,
-            start_y,
-        );
-
-        let str: String = diagonal_iter.collect();
-
-        let forward_count = count_words_in_iter(&mut str.chars().clone(), word);
-        let backward_count = count_words_in_iter(&mut str.chars().rev().clone(), word);
-
-        result += forward_count + backward_count;
+        let mut iter = create_diagonal_iter(DiagonalDirection::TopLeftToBottomRight, i, 0);
+        result += count_word_occurences_in_iter(&mut iter, word);
     }
 
     // Diagonal (top right to bottom left) starting at right
     for i in 0..height {
-        let start_x = width - 1;
-        let start_y = i;
-        let diagonal_iter = DiagonalIter::new(
-            input,
-            DiagonalDirection::TopRightToBottomLeft,
-            start_x,
-            start_y,
-        );
-
-        let str: String = diagonal_iter.collect();
-
-        let forward_count = count_words_in_iter(&mut str.chars().clone(), word);
-        let backward_count = count_words_in_iter(&mut str.chars().rev().clone(), word);
-
-        result += forward_count + backward_count;
+        let mut iter = create_diagonal_iter(DiagonalDirection::TopRightToBottomLeft, width - 1, i);
+        result += count_word_occurences_in_iter(&mut iter, word);
     }
 
     // Diagonal (top right to bottom left) starting at top
     // Skip the first line, as it was already covered by the previous loop
     for i in 0..width - 1 {
-        let start_x = i;
-        let start_y = 0;
-        let diagonal_iter = DiagonalIter::new(
-            input,
-            DiagonalDirection::TopRightToBottomLeft,
-            start_x,
-            start_y,
-        );
-
-        let str: String = diagonal_iter.collect();
-
-        let forward_count = count_words_in_iter(&mut str.chars().clone(), word);
-        let backward_count = count_words_in_iter(&mut str.chars().rev().clone(), word);
-
-        result += forward_count + backward_count;
+        let mut iter = create_diagonal_iter(DiagonalDirection::TopRightToBottomLeft, i, 0);
+        result += count_word_occurences_in_iter(&mut iter, word);
     }
 
     result
 }
 
 fn find_cross_occurences(input: &str, word: &str) -> usize {
-    if word.len() % 2 == 0 {
-        panic!("Word length must be odd");
-    }
+    assert!(word.len() % 2 == 1, "Word length must be odd");
 
     let middle_character = word.chars().nth(word.len() / 2).unwrap();
 
     let height = input.lines().count();
     let width = input.lines().next().unwrap().len();
 
+    let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
+
     let mut occurences = 0;
 
     for y in 0..height {
-        for x in 0..width {
-            let character = input
-                .chars()
-                .filter(|c| c != &'\n')
-                .nth(x + y * width)
-                .unwrap();
+        'outer: for x in 0..width {
+            let character = chars.get(x + y * width).unwrap();
 
-            if character != middle_character {
+            if character != &middle_character {
                 continue;
             }
 
-            let diagonal_top_left: Vec<char> =
-                DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, x, y)
-                    .skip(1)
-                    .take(word.len() / 2)
-                    .collect();
-            let diagonal_bottom_right: Vec<char> =
-                DiagonalIter::new(input, DiagonalDirection::BottomRightToTopLeft, x, y)
-                    .skip(1)
-                    .take(word.len() / 2)
-                    .collect();
+            for (d1, d2) in [
+                (
+                    DiagonalDirection::TopLeftToBottomRight,
+                    DiagonalDirection::BottomRightToTopLeft,
+                ),
+                (
+                    DiagonalDirection::TopRightToBottomLeft,
+                    DiagonalDirection::BottomLeftToTopRight,
+                ),
+            ] {
+                let mut diagonal: Vec<char> = vec![];
 
-            let mut diagonal: Vec<char> = vec![];
-            diagonal.extend(diagonal_top_left.iter());
-            diagonal.push(character);
-            diagonal.extend(diagonal_bottom_right.iter());
+                diagonal.extend(
+                    DiagonalIter::new(&chars, d1, width, height, x, y)
+                        .skip(1)
+                        .take(word.len() / 2),
+                );
+                diagonal.push(*character);
+                diagonal.extend(
+                    DiagonalIter::new(&chars, d2, width, height, x, y)
+                        .skip(1)
+                        .take(word.len() / 2),
+                );
 
-            let diagonal_str: String = diagonal.iter().collect();
-
-            if diagonal_str != word && diagonal_str.chars().rev().collect::<String>() != word {
-                continue;
-            }
-
-            let diagonal_top_right: Vec<char> =
-                DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, x, y)
-                    .skip(1)
-                    .take(word.len() / 2)
-                    .collect();
-            let diagonal_bottom_left: Vec<char> =
-                DiagonalIter::new(input, DiagonalDirection::BottomLeftToTopRight, x, y)
-                    .skip(1)
-                    .take(word.len() / 2)
-                    .collect();
-
-            let mut diagonal: Vec<char> = vec![];
-            diagonal.extend(diagonal_top_right.iter());
-            diagonal.push(character);
-            diagonal.extend(diagonal_bottom_left.iter());
-
-            let diagonal_str: String = diagonal.iter().collect();
-
-            if diagonal_str != word && diagonal_str.chars().rev().collect::<String>() != word {
-                continue;
+                if count_word_occurences_in_iter(&mut diagonal.into_iter(), word) == 0 {
+                    continue 'outer;
+                }
             }
 
             occurences += 1;
@@ -343,189 +278,136 @@ mod tests {
 
     #[test]
     fn test_count_words_in_iter() {
-        assert_eq!(count_words_in_iter(&mut "....XXMAS.".chars(), "XMAS"), 1);
-        assert_eq!(count_words_in_iter(&mut "XMASAS".chars(), "XMAS"), 1);
-        assert_eq!(count_words_in_iter(&mut "AAXMAS".chars(), "XMAS"), 1);
+        assert_eq!(
+            count_word_occurences_in_iter(&mut "XMAS".chars(), "XMAS"),
+            1
+        );
+        assert_eq!(
+            count_word_occurences_in_iter(&mut "SAMX".chars(), "XMAS"),
+            1
+        );
+        assert_eq!(
+            count_word_occurences_in_iter(&mut "....XXMAS.".chars(), "XMAS"),
+            1
+        );
+        assert_eq!(
+            count_word_occurences_in_iter(&mut "XMASAS".chars(), "XMAS"),
+            1
+        );
+        assert_eq!(
+            count_word_occurences_in_iter(&mut "AAXMAS".chars(), "XMAS"),
+            1
+        );
+        assert_eq!(
+            count_word_occurences_in_iter(&mut "..SAMX".chars(), "XMAS"),
+            1
+        );
+        assert_eq!(
+            count_word_occurences_in_iter(&mut "XMASAMX".chars(), "XMAS"),
+            2
+        );
     }
 
     #[test]
     fn test_diagonal_iter_top_left_square() {
         let input = "ABC\nDEF\nGHI";
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 0, 2)
-                .collect::<Vec<_>>(),
-            vec!['G']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 0, 1)
-                .collect::<Vec<_>>(),
-            vec!['D', 'H']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 0, 0)
-                .collect::<Vec<_>>(),
-            vec!['A', 'E', 'I']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 1, 0)
-                .collect::<Vec<_>>(),
-            vec!['B', 'F']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 2, 0)
-                .collect::<Vec<_>>(),
-            vec!['C']
-        );
+        let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
+
+        for (x, y, expected) in [
+            (0, 2, vec!['G']),
+            (0, 1, vec!['D', 'H']),
+            (0, 0, vec!['A', 'E', 'I']),
+            (1, 0, vec!['B', 'F']),
+            (2, 0, vec!['C']),
+        ] {
+            assert_eq!(
+                DiagonalIter::new(&chars, DiagonalDirection::TopLeftToBottomRight, 3, 3, x, y)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+
+        for (x, y, expected) in [
+            (2, 2, vec!['I']),
+            (2, 1, vec!['F', 'H']),
+            (2, 0, vec!['C', 'E', 'G']),
+            (1, 0, vec!['B', 'D']),
+            (0, 0, vec!['A']),
+        ] {
+            assert_eq!(
+                DiagonalIter::new(&chars, DiagonalDirection::TopRightToBottomLeft, 3, 3, x, y)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
     }
 
     #[test]
-    fn test_diagonal_iter_top_right_square() {
-        let input = "ABC\nDEF\nGHI";
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 2, 2)
-                .collect::<Vec<_>>(),
-            vec!['I']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 2, 1)
-                .collect::<Vec<_>>(),
-            vec!['F', 'H']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 2, 0)
-                .collect::<Vec<_>>(),
-            vec!['C', 'E', 'G']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 1, 0)
-                .collect::<Vec<_>>(),
-            vec!['B', 'D']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 0, 0)
-                .collect::<Vec<_>>(),
-            vec!['A']
-        );
-    }
-
-    #[test]
-    fn test_diagonal_iter_top_left_tall() {
+    fn test_diagonal_iter_tall() {
         let input = "AB\nCD\nEF\nGH";
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 0, 3)
-                .collect::<Vec<_>>(),
-            vec!['G']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 0, 2)
-                .collect::<Vec<_>>(),
-            vec!['E', 'H']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 0, 1)
-                .collect::<Vec<_>>(),
-            vec!['C', 'F']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 0, 0)
-                .collect::<Vec<_>>(),
-            vec!['A', 'D']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 1, 0)
-                .collect::<Vec<_>>(),
-            vec!['B']
-        );
+        let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
+
+        for (x, y, expected) in [
+            (0, 3, vec!['G']),
+            (0, 2, vec!['E', 'H']),
+            (0, 1, vec!['C', 'F']),
+            (0, 0, vec!['A', 'D']),
+            (1, 0, vec!['B']),
+        ] {
+            assert_eq!(
+                DiagonalIter::new(&chars, DiagonalDirection::TopLeftToBottomRight, 2, 4, x, y)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+
+        for (x, y, expected) in [
+            (0, 0, vec!['A']),
+            (1, 0, vec!['B', 'C']),
+            (1, 1, vec!['D', 'E']),
+            (1, 2, vec!['F', 'G']),
+            (1, 3, vec!['H']),
+        ] {
+            assert_eq!(
+                DiagonalIter::new(&chars, DiagonalDirection::TopRightToBottomLeft, 2, 4, x, y)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
     }
 
     #[test]
-    fn test_diagonal_iter_top_right_tall() {
-        let input = "AB\nCD\nEF\nGH";
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 0, 0)
-                .collect::<Vec<_>>(),
-            vec!['A']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 1, 0)
-                .collect::<Vec<_>>(),
-            vec!['B', 'C']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 1, 1)
-                .collect::<Vec<_>>(),
-            vec!['D', 'E']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 1, 2)
-                .collect::<Vec<_>>(),
-            vec!['F', 'G']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 1, 3)
-                .collect::<Vec<_>>(),
-            vec!['H']
-        );
-    }
-
-    #[test]
-    fn test_diagonal_iter_top_left_wide() {
+    fn test_diagonal_iter_wide() {
         let input = "ABCD\nEFGH";
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 0, 1)
-                .collect::<Vec<_>>(),
-            vec!['E']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 0, 0)
-                .collect::<Vec<_>>(),
-            vec!['A', 'F']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 1, 0)
-                .collect::<Vec<_>>(),
-            vec!['B', 'G']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 2, 0)
-                .collect::<Vec<_>>(),
-            vec!['C', 'H']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, 3, 0)
-                .collect::<Vec<_>>(),
-            vec!['D']
-        );
-    }
+        let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
 
-    #[test]
-    fn test_diagonal_iter_top_right_wide() {
-        let input = "ABCD\nEFGH";
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 0, 0)
-                .collect::<Vec<_>>(),
-            vec!['A']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 1, 0)
-                .collect::<Vec<_>>(),
-            vec!['B', 'E']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 2, 0)
-                .collect::<Vec<_>>(),
-            vec!['C', 'F']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 3, 0)
-                .collect::<Vec<_>>(),
-            vec!['D', 'G']
-        );
-        assert_eq!(
-            DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, 3, 1)
-                .collect::<Vec<_>>(),
-            vec!['H']
-        );
+        for (x, y, expected) in [
+            (0, 1, vec!['E']),
+            (0, 0, vec!['A', 'F']),
+            (1, 0, vec!['B', 'G']),
+            (2, 0, vec!['C', 'H']),
+            (3, 0, vec!['D']),
+        ] {
+            assert_eq!(
+                DiagonalIter::new(&chars, DiagonalDirection::TopLeftToBottomRight, 4, 2, x, y)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+
+        for (x, y, expected) in [
+            (0, 0, vec!['A']),
+            (1, 0, vec!['B', 'E']),
+            (2, 0, vec!['C', 'F']),
+            (3, 0, vec!['D', 'G']),
+            (3, 1, vec!['H']),
+        ] {
+            assert_eq!(
+                DiagonalIter::new(&chars, DiagonalDirection::TopRightToBottomLeft, 4, 2, x, y)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
     }
 
     #[test]
