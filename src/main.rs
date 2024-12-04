@@ -29,6 +29,8 @@ fn count_words_in_iter<I: Iterator<Item = char>>(chars: &mut I, word: &str) -> u
 enum DiagonalDirection {
     TopLeftToBottomRight,
     TopRightToBottomLeft,
+    BottomLeftToTopRight,
+    BottomRightToTopLeft,
 }
 
 #[derive(Debug, Clone)]
@@ -74,10 +76,24 @@ impl Iterator for DiagonalIter {
 
         let result = self.chars.get(self.x + self.y * self.width);
 
-        // Bottom row
-        if self.y == self.height - 1 {
-            self.finished = true;
-            return result.copied();
+        if self.direction == DiagonalDirection::TopLeftToBottomRight
+            || self.direction == DiagonalDirection::TopRightToBottomLeft
+        {
+            // Bottom row
+            if self.y == self.height - 1 {
+                self.finished = true;
+                return result.copied();
+            }
+        }
+
+        if self.direction == DiagonalDirection::BottomLeftToTopRight
+            || self.direction == DiagonalDirection::BottomRightToTopLeft
+        {
+            // Top row
+            if self.y == 0 {
+                self.finished = true;
+                return result.copied();
+            }
         }
 
         if self.direction == DiagonalDirection::TopLeftToBottomRight {
@@ -97,6 +113,26 @@ impl Iterator for DiagonalIter {
             } else {
                 self.x -= 1;
                 self.y += 1;
+            }
+        }
+
+        if self.direction == DiagonalDirection::BottomLeftToTopRight {
+            // Right column
+            if self.x == self.width - 1 {
+                self.finished = true;
+            } else {
+                self.x += 1;
+                self.y -= 1;
+            }
+        }
+
+        if self.direction == DiagonalDirection::BottomRightToTopLeft {
+            // Left column
+            if self.x == 0 {
+                self.finished = true;
+            } else {
+                self.x -= 1;
+                self.y -= 1;
             }
         }
 
@@ -216,11 +252,89 @@ fn count_word_occurences(input: &str, word: &str) -> usize {
     result
 }
 
+fn find_cross_occurences(input: &str, word: &str) -> usize {
+    if word.len() % 2 == 0 {
+        panic!("Word length must be odd");
+    }
+
+    let middle_character = word.chars().nth(word.len() / 2).unwrap();
+
+    let height = input.lines().count();
+    let width = input.lines().next().unwrap().len();
+
+    let mut occurences = 0;
+
+    for y in 0..height {
+        for x in 0..width {
+            let character = input
+                .chars()
+                .filter(|c| c != &'\n')
+                .nth(x + y * width)
+                .unwrap();
+
+            if character != middle_character {
+                continue;
+            }
+
+            let diagonal_top_left: Vec<char> =
+                DiagonalIter::new(input, DiagonalDirection::TopLeftToBottomRight, x, y)
+                    .skip(1)
+                    .take(word.len() / 2)
+                    .collect();
+            let diagonal_bottom_right: Vec<char> =
+                DiagonalIter::new(input, DiagonalDirection::BottomRightToTopLeft, x, y)
+                    .skip(1)
+                    .take(word.len() / 2)
+                    .collect();
+
+            let mut diagonal: Vec<char> = vec![];
+            diagonal.extend(diagonal_top_left.iter());
+            diagonal.push(character);
+            diagonal.extend(diagonal_bottom_right.iter());
+
+            let diagonal_str: String = diagonal.iter().collect();
+
+            if diagonal_str != word && diagonal_str.chars().rev().collect::<String>() != word {
+                continue;
+            }
+
+            let diagonal_top_right: Vec<char> =
+                DiagonalIter::new(input, DiagonalDirection::TopRightToBottomLeft, x, y)
+                    .skip(1)
+                    .take(word.len() / 2)
+                    .collect();
+            let diagonal_bottom_left: Vec<char> =
+                DiagonalIter::new(input, DiagonalDirection::BottomLeftToTopRight, x, y)
+                    .skip(1)
+                    .take(word.len() / 2)
+                    .collect();
+
+            let mut diagonal: Vec<char> = vec![];
+            diagonal.extend(diagonal_top_right.iter());
+            diagonal.push(character);
+            diagonal.extend(diagonal_bottom_left.iter());
+
+            let diagonal_str: String = diagonal.iter().collect();
+
+            if diagonal_str != word && diagonal_str.chars().rev().collect::<String>() != word {
+                continue;
+            }
+
+            occurences += 1;
+        }
+    }
+
+    occurences
+}
+
 fn main() {
     let input = fs::read_to_string("./inputs/day4.txt").expect("Failed to read file");
 
     let result = count_word_occurences(&input, "XMAS");
     println!("Result (Part 1): {result}");
+
+    let result = find_cross_occurences(&input, "MAS");
+    println!("Result (Part 2): {result}");
 }
 
 #[cfg(test)]
@@ -509,5 +623,36 @@ S.S.S.S.SS
         .trim();
 
         assert_eq!(count_word_occurences(input, "XMAS"), 18);
+    }
+
+    #[test]
+    fn find_crosses_single() {
+        let input = r#"
+M.S
+.A.
+M.S
+            "#
+        .trim();
+
+        assert_eq!(find_cross_occurences(input, "MAS"), 1);
+    }
+
+    #[test]
+    fn find_crosses_large() {
+        let input = r#"
+.M.S......
+..A..MSMS.
+.M.S.MAA..
+..A.ASMSM.
+.M.S.M....
+..........
+S.S.S.S.S.
+.A.A.A.A..
+M.M.M.M.M.
+..........
+            "#
+        .trim();
+
+        assert_eq!(find_cross_occurences(input, "MAS"), 9);
     }
 }
