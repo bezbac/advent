@@ -69,7 +69,7 @@ fn is_valid_ordering(adjecency_list: &HashMap<usize, HashSet<usize>>, ordering: 
     true
 }
 
-fn calculate_ordering_checksum(
+fn calculate_valid_ordering_checksum(
     adjecency_list: &HashMap<usize, HashSet<usize>>,
     orderings: &[Vec<usize>],
 ) -> usize {
@@ -79,6 +79,56 @@ fn calculate_ordering_checksum(
         if is_valid_ordering(adjecency_list, ordering) {
             assert!(ordering.len() % 2 == 1, "Odering must have odd length");
             let middle_num = ordering[ordering.len() / 2];
+            result += middle_num;
+        }
+    }
+
+    result
+}
+
+fn correct_ordering(
+    adjecency_list: &HashMap<usize, HashSet<usize>>,
+    ordering: &[usize],
+) -> Vec<usize> {
+    let mut remaining = ordering.to_vec();
+
+    let mut result = vec![];
+
+    result.push(remaining.pop().unwrap());
+
+    while let Some(num) = remaining.pop() {
+        let mut after_idx = 0;
+        for (idx, n) in result.iter().enumerate() {
+            if let Some(l) = adjecency_list.get(n) {
+                if l.contains(&num) {
+                    // Number must come after result[i]
+                    after_idx = idx + 1;
+                }
+            }
+        }
+
+        result.insert(after_idx, num);
+    }
+
+    result
+}
+
+fn calculate_invalid_ordering_checksum(
+    adjecency_list: &HashMap<usize, HashSet<usize>>,
+    orderings: &[Vec<usize>],
+) -> usize {
+    let mut result = 0;
+
+    for ordering in orderings {
+        if !is_valid_ordering(adjecency_list, ordering) {
+            let sorted = correct_ordering(&adjecency_list, &ordering);
+            assert!(
+                is_valid_ordering(adjecency_list, &sorted),
+                "Encountered invalid ordering {:?}",
+                sorted
+            );
+            assert!(sorted.len() % 2 == 1, "Odering must have odd length");
+            let middle_num = sorted[sorted.len() / 2];
             result += middle_num;
         }
     }
@@ -104,9 +154,13 @@ fn main() {
         orderings.push(ordering);
     }
 
-    let result = calculate_ordering_checksum(&adjecency_list, &orderings);
+    let result = calculate_valid_ordering_checksum(&adjecency_list, &orderings);
 
     println!("Result (Part 1): {result}");
+
+    let result = calculate_invalid_ordering_checksum(&adjecency_list, &orderings);
+
+    println!("Result (Part 2): {result}");
 }
 
 #[cfg(test)]
@@ -177,7 +231,113 @@ mod tests {
     }
 
     #[test]
-    fn test_calculate_ordering_checksum() {
+    fn test_correct_ordering() {
+        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
+            (47, vec![53, 13, 61, 29].into_iter().collect::<HashSet<_>>()),
+            (
+                97,
+                vec![13, 61, 47, 29, 53, 75]
+                    .into_iter()
+                    .collect::<HashSet<_>>(),
+            ),
+            (
+                75,
+                vec![29, 53, 47, 61, 13].into_iter().collect::<HashSet<_>>(),
+            ),
+            (61, vec![13].into_iter().collect::<HashSet<_>>()),
+            (29, vec![13].into_iter().collect::<HashSet<_>>()),
+            (53, vec![29, 13].into_iter().collect::<HashSet<_>>()),
+            (61, vec![53, 29].into_iter().collect::<HashSet<_>>()),
+        ]);
+
+        assert_eq!(
+            correct_ordering(&adjecency_list, &[75, 47, 61, 53, 29]),
+            vec![75, 47, 61, 53, 29]
+        );
+        assert_eq!(
+            correct_ordering(&adjecency_list, &[97, 13, 75, 29, 47]),
+            vec![97, 75, 47, 29, 13]
+        );
+        assert_eq!(
+            correct_ordering(&adjecency_list, &[75, 29, 13]),
+            vec![75, 29, 13]
+        );
+        assert_eq!(
+            correct_ordering(&adjecency_list, &[75, 97, 47, 61, 53]),
+            vec![97, 75, 47, 61, 53]
+        );
+        assert_eq!(
+            correct_ordering(&adjecency_list, &[61, 13, 29]),
+            vec![61, 29, 13]
+        );
+        assert_eq!(
+            correct_ordering(&adjecency_list, &[97, 13, 75, 29, 47]),
+            vec![97, 75, 47, 29, 13]
+        );
+    }
+
+    #[test]
+    fn test_correct_ordering_2() {
+        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
+            (73, vec![68].into_iter().collect::<HashSet<_>>()),
+            (88, vec![73].into_iter().collect::<HashSet<_>>()),
+        ]);
+
+        let corrected = correct_ordering(&adjecency_list, &[68, 73, 88]);
+        assert!(
+            is_valid_ordering(&adjecency_list, &corrected),
+            "{:?}",
+            corrected
+        );
+
+        let corrected = correct_ordering(&adjecency_list, &[88, 68, 73]);
+        assert!(
+            is_valid_ordering(&adjecency_list, &corrected),
+            "{:?}",
+            corrected
+        );
+    }
+
+    #[test]
+    fn test_correct_ordering_simple() {
+        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
+            (1, vec![2].into_iter().collect::<HashSet<_>>()),
+            (2, vec![3].into_iter().collect::<HashSet<_>>()),
+            (3, vec![4].into_iter().collect::<HashSet<_>>()),
+            (4, vec![5].into_iter().collect::<HashSet<_>>()),
+            (5, vec![6].into_iter().collect::<HashSet<_>>()),
+            (6, vec![7].into_iter().collect::<HashSet<_>>()),
+            (7, vec![8].into_iter().collect::<HashSet<_>>()),
+            (8, vec![9].into_iter().collect::<HashSet<_>>()),
+        ]);
+
+        assert!(is_valid_ordering(
+            &adjecency_list,
+            &correct_ordering(&adjecency_list, &[1, 2, 3, 4, 5, 6, 7, 8, 9])
+        ));
+    }
+
+    #[test]
+    fn test_correct_ordering_3() {
+        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
+            (1, vec![2, 3, 9].into_iter().collect::<HashSet<_>>()),
+            (2, vec![4, 5, 7, 8, 9].into_iter().collect::<HashSet<_>>()),
+            (3, vec![6, 7].into_iter().collect::<HashSet<_>>()),
+            (4, vec![7].into_iter().collect::<HashSet<_>>()),
+            (5, vec![6].into_iter().collect::<HashSet<_>>()),
+            (6, vec![7].into_iter().collect::<HashSet<_>>()),
+            (7, vec![9].into_iter().collect::<HashSet<_>>()),
+            (8, vec![9].into_iter().collect::<HashSet<_>>()),
+        ]);
+
+        assert!(is_valid_ordering(
+            &adjecency_list,
+            &correct_ordering(&adjecency_list, &[1, 2, 3, 4, 5, 6, 7, 8, 9])
+        ));
+    }
+
+    #[test]
+    fn test_calculate_valid_ordering_checksum() {
         let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
             (75, vec![47, 61, 53, 29].into_iter().collect::<HashSet<_>>()),
             (47, vec![61, 53, 29].into_iter().collect::<HashSet<_>>()),
@@ -187,7 +347,7 @@ mod tests {
             (29, vec![13].into_iter().collect::<HashSet<_>>()),
         ]);
 
-        let ordering_checksum = calculate_ordering_checksum(
+        let ordering_checksum = calculate_valid_ordering_checksum(
             &adjecency_list,
             &[
                 vec![75, 47, 61, 53, 29],
@@ -200,5 +360,40 @@ mod tests {
         );
 
         assert_eq!(ordering_checksum, 61 + 5 + 12);
+    }
+
+    #[test]
+    fn test_calculate_invalid_ordering_checksum() {
+        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
+            (47, vec![53, 13, 61, 29].into_iter().collect::<HashSet<_>>()),
+            (
+                97,
+                vec![13, 61, 47, 29, 53, 75]
+                    .into_iter()
+                    .collect::<HashSet<_>>(),
+            ),
+            (
+                75,
+                vec![29, 53, 47, 61, 13].into_iter().collect::<HashSet<_>>(),
+            ),
+            (61, vec![13].into_iter().collect::<HashSet<_>>()),
+            (29, vec![13].into_iter().collect::<HashSet<_>>()),
+            (53, vec![29, 13].into_iter().collect::<HashSet<_>>()),
+            (61, vec![53, 29].into_iter().collect::<HashSet<_>>()),
+        ]);
+
+        let ordering_checksum = calculate_invalid_ordering_checksum(
+            &adjecency_list,
+            &[
+                vec![75, 47, 61, 53, 29],
+                vec![97, 61, 53, 29, 13],
+                vec![75, 29, 13],
+                vec![75, 97, 47, 61, 53],
+                vec![61, 13, 29],
+                vec![97, 13, 75, 29, 47],
+            ],
+        );
+
+        assert_eq!(ordering_checksum, 47 + 29 + 47);
     }
 }
