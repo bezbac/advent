@@ -1,275 +1,112 @@
-use std::fs;
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+};
 
-fn count_word_occurences_in_iter<I: Iterator<Item = char>>(chars: &mut I, word: &str) -> usize {
-    let mut result = 0;
+fn parse_adjecency_list(input: &str) -> HashMap<usize, HashSet<usize>> {
+    let mut result: HashMap<usize, HashSet<usize>> = HashMap::new();
 
-    let mut matched = 0;
-    let mut matched_rev = 0;
-    for c in chars.by_ref() {
-        if Some(c) == word.chars().nth(matched) {
-            matched += 1;
-        } else {
-            matched = 0;
-
-            if Some(c) == word.chars().nth(0) {
-                matched += 1;
-            }
-        }
-
-        if matched == word.len() {
-            result += 1;
-            matched = 0;
-        }
-
-        if Some(c) == word.chars().nth(word.len() - 1 - matched_rev) {
-            matched_rev += 1;
-        } else {
-            matched_rev = 0;
-
-            if Some(c) == word.chars().nth(word.len() - 1) {
-                matched_rev += 1;
-            }
-        }
-
-        if matched_rev == word.len() {
-            result += 1;
-            matched_rev = 0;
-        }
-    }
-
-    result
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum DiagonalDirection {
-    TopLeftToBottomRight,
-    TopRightToBottomLeft,
-    BottomLeftToTopRight,
-    BottomRightToTopLeft,
-}
-
-#[derive(Debug, Clone)]
-struct DiagonalIter<'a> {
-    chars: &'a [char],
-    direction: DiagonalDirection,
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-    finished: bool,
-}
-
-impl<'a> DiagonalIter<'a> {
-    fn new(
-        chars: &'a [char],
-        direction: DiagonalDirection,
-        width: usize,
-        height: usize,
-        start_x: usize,
-        start_y: usize,
-    ) -> Self {
-        Self {
-            chars,
-
-            direction,
-
-            width,
-            height,
-
-            x: start_x,
-            y: start_y,
-
-            finished: false,
-        }
-    }
-}
-
-impl<'a> Iterator for DiagonalIter<'a> {
-    type Item = char;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.finished {
-            return None;
-        }
-
-        let result = self.chars.get(self.x + self.y * self.width);
-
-        if self.direction == DiagonalDirection::TopLeftToBottomRight
-            || self.direction == DiagonalDirection::TopRightToBottomLeft
-        {
-            // Bottom row
-            if self.y == self.height - 1 {
-                self.finished = true;
-                return result.copied();
-            }
-        }
-
-        if self.direction == DiagonalDirection::BottomLeftToTopRight
-            || self.direction == DiagonalDirection::BottomRightToTopLeft
-        {
-            // Top row
-            if self.y == 0 {
-                self.finished = true;
-                return result.copied();
-            }
-        }
-
-        if self.direction == DiagonalDirection::TopLeftToBottomRight
-            || self.direction == DiagonalDirection::BottomLeftToTopRight
-        {
-            // Right column
-            if self.x == self.width - 1 {
-                self.finished = true;
-                return result.copied();
-            }
-        }
-
-        if self.direction == DiagonalDirection::TopRightToBottomLeft
-            || self.direction == DiagonalDirection::BottomRightToTopLeft
-        {
-            // Left column
-            if self.x == 0 {
-                self.finished = true;
-                return result.copied();
-            }
-        }
-
-        if self.direction == DiagonalDirection::TopLeftToBottomRight
-            || self.direction == DiagonalDirection::BottomLeftToTopRight
-        {
-            self.x += 1;
-        } else {
-            self.x -= 1;
-        }
-
-        if self.direction == DiagonalDirection::TopLeftToBottomRight
-            || self.direction == DiagonalDirection::TopRightToBottomLeft
-        {
-            self.y += 1;
-        } else {
-            self.y -= 1;
-        }
-
-        result.copied()
-    }
-}
-
-fn count_word_occurences(input: &str, word: &str) -> usize {
-    let height = input.lines().count();
-    let width = input.lines().next().unwrap().len();
-
-    let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
-
-    let create_diagonal_iter = |direction: DiagonalDirection, x: usize, y: usize| {
-        DiagonalIter::new(&chars, direction, width, height, x, y)
-    };
-
-    let mut result = 0;
-
-    // Horizontal
     for line in input.lines() {
-        result += count_word_occurences_in_iter(&mut line.chars(), word);
-    }
+        let mut parts = line.split('|');
+        let from = parts.next().unwrap().trim().parse().unwrap();
+        let to = parts.next().unwrap().trim().parse().unwrap();
 
-    // Vertical
-    for i in 0..width {
-        let mut iter = input.chars().filter(|c| c != &'\n').skip(i).step_by(width);
-        result += count_word_occurences_in_iter(&mut iter, word);
-    }
-
-    // Diagonal (top left to bottom right) starting at left
-    for i in 0..height {
-        let mut iter = create_diagonal_iter(DiagonalDirection::TopLeftToBottomRight, 0, i);
-        result += count_word_occurences_in_iter(&mut iter, word);
-    }
-
-    // Diagonal (top left to bottom right) starting at top
-    // Skip the first line, as it was already covered by the previous loop
-    for i in 1..width {
-        let mut iter = create_diagonal_iter(DiagonalDirection::TopLeftToBottomRight, i, 0);
-        result += count_word_occurences_in_iter(&mut iter, word);
-    }
-
-    // Diagonal (top right to bottom left) starting at right
-    for i in 0..height {
-        let mut iter = create_diagonal_iter(DiagonalDirection::TopRightToBottomLeft, width - 1, i);
-        result += count_word_occurences_in_iter(&mut iter, word);
-    }
-
-    // Diagonal (top right to bottom left) starting at top
-    // Skip the first line, as it was already covered by the previous loop
-    for i in 0..width - 1 {
-        let mut iter = create_diagonal_iter(DiagonalDirection::TopRightToBottomLeft, i, 0);
-        result += count_word_occurences_in_iter(&mut iter, word);
+        result.entry(from).or_default().insert(to);
     }
 
     result
 }
 
-fn find_cross_occurences(input: &str, word: &str) -> usize {
-    assert!(word.len() % 2 == 1, "Word length must be odd");
+fn reverse_adjecency_list(
+    adjecency_list: &HashMap<usize, HashSet<usize>>,
+) -> HashMap<usize, HashSet<usize>> {
+    let mut result: HashMap<usize, HashSet<usize>> = HashMap::new();
 
-    let middle_character = word.chars().nth(word.len() / 2).unwrap();
+    for (from, tos) in adjecency_list {
+        for to in tos {
+            result.entry(*to).or_default().insert(*from);
+        }
+    }
 
-    let height = input.lines().count();
-    let width = input.lines().next().unwrap().len();
+    result
+}
 
-    let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
+fn is_valid_ordering(adjecency_list: &HashMap<usize, HashSet<usize>>, ordering: &[usize]) -> bool {
+    let reverse_adjecency_list = reverse_adjecency_list(adjecency_list);
 
-    let mut occurences = 0;
+    for i in 1..ordering.len() {
+        let num = ordering[i];
 
-    for y in 0..height {
-        'outer: for x in 0..width {
-            let character = chars.get(x + y * width).unwrap();
+        {
+            // Check forward
+            let remaining = &ordering[i + 1..];
+            let limiters = reverse_adjecency_list.get(&num);
 
-            if character != &middle_character {
-                continue;
-            }
-
-            for (d1, d2) in [
-                (
-                    DiagonalDirection::TopLeftToBottomRight,
-                    DiagonalDirection::BottomRightToTopLeft,
-                ),
-                (
-                    DiagonalDirection::TopRightToBottomLeft,
-                    DiagonalDirection::BottomLeftToTopRight,
-                ),
-            ] {
-                let mut diagonal: Vec<char> = vec![];
-
-                diagonal.extend(
-                    DiagonalIter::new(&chars, d1, width, height, x, y)
-                        .skip(1)
-                        .take(word.len() / 2),
-                );
-                diagonal.push(*character);
-                diagonal.extend(
-                    DiagonalIter::new(&chars, d2, width, height, x, y)
-                        .skip(1)
-                        .take(word.len() / 2),
-                );
-
-                if count_word_occurences_in_iter(&mut diagonal.into_iter(), word) == 0 {
-                    continue 'outer;
+            if let Some(limiters) = limiters {
+                for limiter in limiters {
+                    if remaining.contains(limiter) {
+                        return false;
+                    }
                 }
             }
+        }
 
-            occurences += 1;
+        {
+            // Check backward
+            let checked = &ordering[0..i];
+            let limiters = adjecency_list.get(&num);
+
+            if let Some(limiters) = limiters {
+                for limiter in limiters {
+                    if checked.contains(limiter) {
+                        return false;
+                    }
+                }
+            }
         }
     }
 
-    occurences
+    true
+}
+
+fn calculate_ordering_checksum(
+    adjecency_list: &HashMap<usize, HashSet<usize>>,
+    orderings: &[Vec<usize>],
+) -> usize {
+    let mut result = 0;
+
+    for ordering in orderings {
+        if is_valid_ordering(adjecency_list, ordering) {
+            assert!(ordering.len() % 2 == 1, "Odering must have odd length");
+            let middle_num = ordering[ordering.len() / 2];
+            result += middle_num;
+        }
+    }
+
+    result
 }
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day4.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day5.txt").expect("Failed to read file");
 
-    let result = count_word_occurences(&input, "XMAS");
+    let mut split: std::str::Split<'_, &str> = input.split("\n\n");
+
+    let adjecency_list = parse_adjecency_list(split.next().unwrap().trim());
+
+    let mut orderings: Vec<Vec<usize>> = vec![];
+    for line in split.next().unwrap().lines() {
+        let mut ordering = vec![];
+
+        for x in line.split(',') {
+            ordering.push(x.parse().unwrap());
+        }
+
+        orderings.push(ordering);
+    }
+
+    let result = calculate_ordering_checksum(&adjecency_list, &orderings);
+
     println!("Result (Part 1): {result}");
-
-    let result = find_cross_occurences(&input, "MAS");
-    println!("Result (Part 2): {result}");
 }
 
 #[cfg(test)]
@@ -277,264 +114,91 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_count_words_in_iter() {
-        assert_eq!(
-            count_word_occurences_in_iter(&mut "XMAS".chars(), "XMAS"),
-            1
-        );
-        assert_eq!(
-            count_word_occurences_in_iter(&mut "SAMX".chars(), "XMAS"),
-            1
-        );
-        assert_eq!(
-            count_word_occurences_in_iter(&mut "....XXMAS.".chars(), "XMAS"),
-            1
-        );
-        assert_eq!(
-            count_word_occurences_in_iter(&mut "XMASAS".chars(), "XMAS"),
-            1
-        );
-        assert_eq!(
-            count_word_occurences_in_iter(&mut "AAXMAS".chars(), "XMAS"),
-            1
-        );
-        assert_eq!(
-            count_word_occurences_in_iter(&mut "..SAMX".chars(), "XMAS"),
-            1
-        );
-        assert_eq!(
-            count_word_occurences_in_iter(&mut "XMASAMX".chars(), "XMAS"),
-            2
-        );
-    }
-
-    #[test]
-    fn test_diagonal_iter_top_left_square() {
-        let input = "ABC\nDEF\nGHI";
-        let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
-
-        for (x, y, expected) in [
-            (0, 2, vec!['G']),
-            (0, 1, vec!['D', 'H']),
-            (0, 0, vec!['A', 'E', 'I']),
-            (1, 0, vec!['B', 'F']),
-            (2, 0, vec!['C']),
-        ] {
-            assert_eq!(
-                DiagonalIter::new(&chars, DiagonalDirection::TopLeftToBottomRight, 3, 3, x, y)
-                    .collect::<Vec<_>>(),
-                expected
-            );
-        }
-
-        for (x, y, expected) in [
-            (2, 2, vec!['I']),
-            (2, 1, vec!['F', 'H']),
-            (2, 0, vec!['C', 'E', 'G']),
-            (1, 0, vec!['B', 'D']),
-            (0, 0, vec!['A']),
-        ] {
-            assert_eq!(
-                DiagonalIter::new(&chars, DiagonalDirection::TopRightToBottomLeft, 3, 3, x, y)
-                    .collect::<Vec<_>>(),
-                expected
-            );
-        }
-    }
-
-    #[test]
-    fn test_diagonal_iter_tall() {
-        let input = "AB\nCD\nEF\nGH";
-        let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
-
-        for (x, y, expected) in [
-            (0, 3, vec!['G']),
-            (0, 2, vec!['E', 'H']),
-            (0, 1, vec!['C', 'F']),
-            (0, 0, vec!['A', 'D']),
-            (1, 0, vec!['B']),
-        ] {
-            assert_eq!(
-                DiagonalIter::new(&chars, DiagonalDirection::TopLeftToBottomRight, 2, 4, x, y)
-                    .collect::<Vec<_>>(),
-                expected
-            );
-        }
-
-        for (x, y, expected) in [
-            (0, 0, vec!['A']),
-            (1, 0, vec!['B', 'C']),
-            (1, 1, vec!['D', 'E']),
-            (1, 2, vec!['F', 'G']),
-            (1, 3, vec!['H']),
-        ] {
-            assert_eq!(
-                DiagonalIter::new(&chars, DiagonalDirection::TopRightToBottomLeft, 2, 4, x, y)
-                    .collect::<Vec<_>>(),
-                expected
-            );
-        }
-    }
-
-    #[test]
-    fn test_diagonal_iter_wide() {
-        let input = "ABCD\nEFGH";
-        let chars: Vec<char> = input.chars().filter(|c| c != &'\n').collect();
-
-        for (x, y, expected) in [
-            (0, 1, vec!['E']),
-            (0, 0, vec!['A', 'F']),
-            (1, 0, vec!['B', 'G']),
-            (2, 0, vec!['C', 'H']),
-            (3, 0, vec!['D']),
-        ] {
-            assert_eq!(
-                DiagonalIter::new(&chars, DiagonalDirection::TopLeftToBottomRight, 4, 2, x, y)
-                    .collect::<Vec<_>>(),
-                expected
-            );
-        }
-
-        for (x, y, expected) in [
-            (0, 0, vec!['A']),
-            (1, 0, vec!['B', 'E']),
-            (2, 0, vec!['C', 'F']),
-            (3, 0, vec!['D', 'G']),
-            (3, 1, vec!['H']),
-        ] {
-            assert_eq!(
-                DiagonalIter::new(&chars, DiagonalDirection::TopRightToBottomLeft, 4, 2, x, y)
-                    .collect::<Vec<_>>(),
-                expected
-            );
-        }
-    }
-
-    #[test]
-    fn test_count_word_occurences_top_left() {
+    fn test_parse_adjecency_list() {
         let input = r#"
-XMAS
-MM..
-A.A.
-S..S
+47|53
+97|13
+97|61
         "#
         .trim();
 
-        assert_eq!(count_word_occurences(input, "XMAS"), 3);
+        let adjecency_list = parse_adjecency_list(input);
+        let expected: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
+            (47, vec![53].into_iter().collect::<HashSet<_>>()),
+            (97, vec![13, 61].into_iter().collect::<HashSet<_>>()),
+        ]);
+
+        assert_eq!(adjecency_list, expected);
     }
 
     #[test]
-    fn test_count_word_occurences_top_right() {
-        let input = r#"
-SAMX
-..MM
-.A.A
-S..S
-        "#
-        .trim();
+    fn test_reverse_adjecency_list() {
+        let adjecency_list: HashMap<usize, HashSet<usize>> =
+            HashMap::from_iter(vec![(97, vec![75, 61].into_iter().collect::<HashSet<_>>())]);
 
-        assert_eq!(count_word_occurences(input, "XMAS"), 3);
+        let reversed = reverse_adjecency_list(&adjecency_list);
+
+        let expected: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
+            (75, vec![97].into_iter().collect::<HashSet<_>>()),
+            (61, vec![97].into_iter().collect::<HashSet<_>>()),
+        ]);
+
+        assert_eq!(reversed, expected);
     }
 
     #[test]
-    fn test_count_word_occurences_bottom_right() {
-        let input = r#"
-S..S
-.A.A
-..MM
-SAMX
-        "#
-        .trim();
+    fn test_is_valid_ordering() {
+        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
+            (75, vec![47, 61, 53, 29].into_iter().collect::<HashSet<_>>()),
+            (47, vec![61, 53, 29].into_iter().collect::<HashSet<_>>()),
+            (61, vec![53, 29].into_iter().collect::<HashSet<_>>()),
+            (53, vec![29].into_iter().collect::<HashSet<_>>()),
+            (97, vec![75].into_iter().collect::<HashSet<_>>()),
+            (29, vec![13].into_iter().collect::<HashSet<_>>()),
+        ]);
 
-        assert_eq!(count_word_occurences(input, "XMAS"), 3);
+        assert_eq!(is_valid_ordering(&adjecency_list, &[75, 47]), true);
+        assert_eq!(is_valid_ordering(&adjecency_list, &[47, 61]), true);
+        assert_eq!(is_valid_ordering(&adjecency_list, &[61, 53]), true);
+
+        assert_eq!(is_valid_ordering(&adjecency_list, &[47, 75]), false);
+        assert_eq!(is_valid_ordering(&adjecency_list, &[61, 47]), false);
+        assert_eq!(is_valid_ordering(&adjecency_list, &[53, 61]), false);
+
+        assert_eq!(
+            is_valid_ordering(&adjecency_list, &[75, 47, 61, 53, 29]),
+            true
+        );
+        assert_eq!(
+            is_valid_ordering(&adjecency_list, &[75, 97, 47, 61, 53]),
+            false
+        );
+        assert_eq!(is_valid_ordering(&adjecency_list, &[61, 13, 29]), false);
     }
 
     #[test]
-    fn test_count_word_occurences_bottom_left() {
-        let input = r#"
-S..S
-A.A.
-MM..
-XMAS
-        "#
-        .trim();
+    fn test_calculate_ordering_checksum() {
+        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
+            (75, vec![47, 61, 53, 29].into_iter().collect::<HashSet<_>>()),
+            (47, vec![61, 53, 29].into_iter().collect::<HashSet<_>>()),
+            (61, vec![53, 29].into_iter().collect::<HashSet<_>>()),
+            (53, vec![29].into_iter().collect::<HashSet<_>>()),
+            (97, vec![75].into_iter().collect::<HashSet<_>>()),
+            (29, vec![13].into_iter().collect::<HashSet<_>>()),
+        ]);
 
-        assert_eq!(count_word_occurences(input, "XMAS"), 3);
-    }
+        let ordering_checksum = calculate_ordering_checksum(
+            &adjecency_list,
+            &[
+                vec![75, 47, 61, 53, 29],
+                vec![75, 97, 47, 61, 53],
+                vec![61, 13, 29],
+                vec![75, 47, 5, 53, 29],
+                vec![75, 47, 12, 53, 29],
+                vec![47, 75, 13],
+            ],
+        );
 
-    #[test]
-    fn test_count_word_occurences_small() {
-        let input = r#"
-..X...
-.SAMX.
-.A..A.
-XMAS.S
-.X....
-        "#
-        .trim();
-
-        let horizontal_forward = 1;
-        let horizontal_backward = 1;
-        let vertical_forward = 0;
-        let vertical_backward = 1;
-        let diagonal_forward = 1;
-
-        let total = horizontal_forward
-            + horizontal_backward
-            + vertical_forward
-            + vertical_backward
-            + diagonal_forward;
-
-        assert_eq!(count_word_occurences(input, "XMAS"), total);
-    }
-
-    #[test]
-    fn test_count_word_occurences_large() {
-        let input = r#"
-....XXMAS.
-.SAMXMS...
-...S..A...
-..A.A.MS.X
-XMASAMX.MM
-X.....XA.A
-S.S.S.S.SS
-.A.A.A.A.A
-..M.M.M.MM
-.X.X.XMASX
-            "#
-        .trim();
-
-        assert_eq!(count_word_occurences(input, "XMAS"), 18);
-    }
-
-    #[test]
-    fn find_crosses_single() {
-        let input = r#"
-M.S
-.A.
-M.S
-            "#
-        .trim();
-
-        assert_eq!(find_cross_occurences(input, "MAS"), 1);
-    }
-
-    #[test]
-    fn find_crosses_large() {
-        let input = r#"
-.M.S......
-..A..MSMS.
-.M.S.MAA..
-..A.ASMSM.
-.M.S.M....
-..........
-S.S.S.S.S.
-.A.A.A.A..
-M.M.M.M.M.
-..........
-            "#
-        .trim();
-
-        assert_eq!(find_cross_occurences(input, "MAS"), 9);
+        assert_eq!(ordering_checksum, 61 + 5 + 12);
     }
 }
