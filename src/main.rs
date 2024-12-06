@@ -1,166 +1,199 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fs,
-};
+use anyhow::Result;
+use std::{collections::HashSet, fs};
 
-fn parse_adjecency_list(input: &str) -> HashMap<usize, HashSet<usize>> {
-    let mut result: HashMap<usize, HashSet<usize>> = HashMap::new();
-
-    for line in input.lines() {
-        let mut parts = line.split('|');
-        let from = parts.next().unwrap().trim().parse().unwrap();
-        let to = parts.next().unwrap().trim().parse().unwrap();
-
-        result.entry(from).or_default().insert(to);
-    }
-
-    result
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Tile {
+    Empty,
+    Wall,
 }
 
-fn reverse_adjecency_list(
-    adjecency_list: &HashMap<usize, HashSet<usize>>,
-) -> HashMap<usize, HashSet<usize>> {
-    let mut result: HashMap<usize, HashSet<usize>> = HashMap::new();
+struct Map {
+    tiles: Vec<Vec<Tile>>,
+}
 
-    for (from, tos) in adjecency_list {
-        for to in tos {
-            result.entry(*to).or_default().insert(*from);
+impl Map {
+    fn width(&self) -> usize {
+        self.tiles[0].len()
+    }
+
+    fn height(&self) -> usize {
+        self.tiles.len()
+    }
+
+    fn get_tile(&self, x: usize, y: usize) -> Tile {
+        self.tiles[y][x]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl Direction {
+    fn rotate_clockwise(self) -> Self {
+        match self {
+            Direction::Up => Direction::Right,
+            Direction::Down => Direction::Left,
+            Direction::Left => Direction::Up,
+            Direction::Right => Direction::Down,
+        }
+    }
+}
+
+struct World {
+    map: Map,
+    guard_direction: Direction,
+    guard_x: usize,
+    guard_y: usize,
+    guard_in_world: bool,
+}
+
+impl World {
+    fn step(&mut self) {
+        if !self.guard_in_world {
+            return;
+        }
+
+        let (next_position_x, next_position_y) = match self.guard_direction {
+            Direction::Up => (self.guard_x as isize, self.guard_y as isize - 1),
+            Direction::Down => (self.guard_x as isize, self.guard_y as isize + 1),
+            Direction::Left => (self.guard_x as isize - 1, self.guard_y as isize),
+            Direction::Right => (self.guard_x as isize + 1, self.guard_y as isize),
+        };
+
+        if next_position_x < 0 {
+            self.guard_in_world = false;
+            return;
+        }
+
+        if next_position_y < 0 {
+            self.guard_in_world = false;
+            return;
+        }
+
+        let next_position_x = next_position_x as usize;
+        let next_position_y = next_position_y as usize;
+
+        if next_position_x >= self.map.width() {
+            self.guard_in_world = false;
+            return;
+        }
+
+        if next_position_y >= self.map.height() {
+            self.guard_in_world = false;
+            return;
+        }
+
+        let next_tile = &self.map.get_tile(next_position_x, next_position_y);
+
+        match next_tile {
+            Tile::Empty => {
+                self.guard_x = next_position_x;
+                self.guard_y = next_position_y;
+            }
+            Tile::Wall => {
+                // Rotate 90 degrees to the right
+                self.guard_direction = self.guard_direction.rotate_clockwise();
+            }
         }
     }
 
-    result
-}
+    fn read(input: &str) -> Self {
+        let input = input.trim();
 
-fn is_valid_ordering(adjecency_list: &HashMap<usize, HashSet<usize>>, ordering: &[usize]) -> bool {
-    let reverse_adjecency_list = reverse_adjecency_list(adjecency_list);
+        let mut guard_x = None;
+        let mut guard_y = None;
+        let mut guard_direction = None;
 
-    for i in 1..ordering.len() {
-        let num = ordering[i];
+        let mut rows = Vec::new();
 
-        {
-            // Check forward
-            let remaining = &ordering[i + 1..];
-            let limiters = reverse_adjecency_list.get(&num);
+        for (y, line) in input.lines().enumerate() {
+            let mut row = Vec::new();
 
-            if let Some(limiters) = limiters {
-                for limiter in limiters {
-                    if remaining.contains(limiter) {
-                        return false;
+            for (x, c) in line.chars().enumerate() {
+                let tile = match c {
+                    '.' => Tile::Empty,
+                    '#' => Tile::Wall,
+                    '^' => {
+                        guard_x = Some(x);
+                        guard_y = Some(y);
+                        guard_direction = Some(Direction::Up);
+                        Tile::Empty
                     }
-                }
-            }
-        }
-
-        {
-            // Check backward
-            let checked = &ordering[0..i];
-            let limiters = adjecency_list.get(&num);
-
-            if let Some(limiters) = limiters {
-                for limiter in limiters {
-                    if checked.contains(limiter) {
-                        return false;
+                    '>' => {
+                        guard_x = Some(x);
+                        guard_y = Some(y);
+                        guard_direction = Some(Direction::Right);
+                        Tile::Empty
                     }
-                }
+                    '<' => {
+                        guard_x = Some(x);
+                        guard_y = Some(y);
+                        guard_direction = Some(Direction::Left);
+                        Tile::Empty
+                    }
+                    'v' => {
+                        guard_x = Some(x);
+                        guard_y = Some(y);
+                        guard_direction = Some(Direction::Down);
+                        Tile::Empty
+                    }
+                    _ => panic!("Unknown tile type '{}'", c),
+                };
+
+                row.push(tile);
             }
-        }
-    }
 
-    true
+            rows.push(row);
+        }
+
+        let map = Map { tiles: rows };
+
+        let guard_x = guard_x.expect("Guard x position not found");
+        let guard_y = guard_y.expect("Guard y position not found");
+        let guard_direction = guard_direction.expect("Guard direction not found");
+
+        let world = World {
+            map,
+            guard_direction,
+            guard_x,
+            guard_y,
+            guard_in_world: true,
+        };
+
+        world
+    }
 }
 
-fn calculate_valid_ordering_checksum(
-    adjecency_list: &HashMap<usize, HashSet<usize>>,
-    orderings: &[Vec<usize>],
-) -> usize {
-    let mut result = 0;
+fn count_distinct_visited_positions(world: &mut World) -> usize {
+    let mut visited_tile_positions = vec![];
 
-    for ordering in orderings {
-        if is_valid_ordering(adjecency_list, ordering) {
-            assert!(ordering.len() % 2 == 1, "Odering must have odd length");
-            let middle_num = ordering[ordering.len() / 2];
-            result += middle_num;
+    while world.guard_in_world {
+        if !world.guard_in_world {
+            break;
         }
+
+        visited_tile_positions.push((world.guard_x, world.guard_y));
+        world.step();
     }
 
-    result
+    visited_tile_positions.iter().collect::<HashSet<_>>().len()
 }
 
-fn correct_ordering(
-    adjecency_list: &HashMap<usize, HashSet<usize>>,
-    ordering: &[usize],
-) -> Vec<usize> {
-    let mut remaining = ordering.to_vec();
+fn main() -> Result<()> {
+    let input = fs::read_to_string("./inputs/day6.txt").expect("Failed to read file");
 
-    let mut result = vec![];
+    let mut world = World::read(&input);
 
-    result.push(remaining.pop().unwrap());
+    let distinct_positions = count_distinct_visited_positions(&mut world);
 
-    while let Some(num) = remaining.pop() {
-        let mut after_idx = 0;
-        for (idx, n) in result.iter().enumerate() {
-            if let Some(l) = adjecency_list.get(n) {
-                if l.contains(&num) {
-                    // Number must come after result[i]
-                    after_idx = idx + 1;
-                }
-            }
-        }
+    println!("Result (Part 1): {distinct_positions}");
 
-        result.insert(after_idx, num);
-    }
-
-    result
-}
-
-fn calculate_invalid_ordering_checksum(
-    adjecency_list: &HashMap<usize, HashSet<usize>>,
-    orderings: &[Vec<usize>],
-) -> usize {
-    let mut result = 0;
-
-    for ordering in orderings {
-        if !is_valid_ordering(adjecency_list, ordering) {
-            let sorted = correct_ordering(&adjecency_list, &ordering);
-            assert!(
-                is_valid_ordering(adjecency_list, &sorted),
-                "Encountered invalid ordering {:?}",
-                sorted
-            );
-            assert!(sorted.len() % 2 == 1, "Odering must have odd length");
-            let middle_num = sorted[sorted.len() / 2];
-            result += middle_num;
-        }
-    }
-
-    result
-}
-
-fn main() {
-    let input = fs::read_to_string("./inputs/day5.txt").expect("Failed to read file");
-
-    let mut split: std::str::Split<'_, &str> = input.split("\n\n");
-
-    let adjecency_list = parse_adjecency_list(split.next().unwrap().trim());
-
-    let mut orderings: Vec<Vec<usize>> = vec![];
-    for line in split.next().unwrap().lines() {
-        let mut ordering = vec![];
-
-        for x in line.split(',') {
-            ordering.push(x.parse().unwrap());
-        }
-
-        orderings.push(ordering);
-    }
-
-    let result = calculate_valid_ordering_checksum(&adjecency_list, &orderings);
-
-    println!("Result (Part 1): {result}");
-
-    let result = calculate_invalid_ordering_checksum(&adjecency_list, &orderings);
-
-    println!("Result (Part 2): {result}");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -168,232 +201,194 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_adjecency_list() {
+    fn test_read_world_empty() {
         let input = r#"
-47|53
-97|13
-97|61
-        "#
-        .trim();
+...
+.^.
+...
+        "#;
 
-        let adjecency_list = parse_adjecency_list(input);
-        let expected: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
-            (47, vec![53].into_iter().collect::<HashSet<_>>()),
-            (97, vec![13, 61].into_iter().collect::<HashSet<_>>()),
-        ]);
+        let world = World::read(input);
 
-        assert_eq!(adjecency_list, expected);
+        assert_eq!(world.map.width(), 3);
+        assert_eq!(world.map.height(), 3);
+        assert!(world
+            .map
+            .tiles
+            .iter()
+            .flatten()
+            .all(|tile| *tile == Tile::Empty));
+        assert_eq!(world.guard_x, 1);
+        assert_eq!(world.guard_y, 1);
+        assert_eq!(world.guard_direction, Direction::Up);
     }
 
     #[test]
-    fn test_reverse_adjecency_list() {
-        let adjecency_list: HashMap<usize, HashSet<usize>> =
-            HashMap::from_iter(vec![(97, vec![75, 61].into_iter().collect::<HashSet<_>>())]);
+    fn test_read_world_simple() {
+        let input = r#"
+.#...
+###..
+.>...
+...##
+        "#;
 
-        let reversed = reverse_adjecency_list(&adjecency_list);
+        let world = World::read(input);
 
-        let expected: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
-            (75, vec![97].into_iter().collect::<HashSet<_>>()),
-            (61, vec![97].into_iter().collect::<HashSet<_>>()),
-        ]);
+        assert_eq!(world.map.width(), 5);
+        assert_eq!(world.map.height(), 4);
 
-        assert_eq!(reversed, expected);
+        assert_eq!(world.map.get_tile(0, 0), Tile::Empty);
+        assert_eq!(world.map.get_tile(1, 0), Tile::Wall);
+        assert_eq!(world.map.get_tile(2, 0), Tile::Empty);
+        assert_eq!(world.map.get_tile(3, 0), Tile::Empty);
+        assert_eq!(world.map.get_tile(4, 0), Tile::Empty);
+        assert_eq!(world.map.get_tile(0, 1), Tile::Wall);
+        assert_eq!(world.map.get_tile(1, 1), Tile::Wall);
+        assert_eq!(world.map.get_tile(2, 1), Tile::Wall);
+        assert_eq!(world.map.get_tile(3, 1), Tile::Empty);
+        assert_eq!(world.map.get_tile(4, 1), Tile::Empty);
+        assert_eq!(world.map.get_tile(0, 2), Tile::Empty);
+        assert_eq!(world.map.get_tile(1, 2), Tile::Empty);
+        assert_eq!(world.map.get_tile(2, 2), Tile::Empty);
+        assert_eq!(world.map.get_tile(3, 2), Tile::Empty);
+        assert_eq!(world.map.get_tile(4, 2), Tile::Empty);
+        assert_eq!(world.map.get_tile(0, 3), Tile::Empty);
+        assert_eq!(world.map.get_tile(1, 3), Tile::Empty);
+        assert_eq!(world.map.get_tile(2, 3), Tile::Empty);
+        assert_eq!(world.map.get_tile(3, 3), Tile::Wall);
+        assert_eq!(world.map.get_tile(4, 3), Tile::Wall);
+
+        assert_eq!(world.guard_x, 1);
+        assert_eq!(world.guard_y, 2);
+        assert_eq!(world.guard_direction, Direction::Right);
     }
 
     #[test]
-    fn test_is_valid_ordering() {
-        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
-            (75, vec![47, 61, 53, 29].into_iter().collect::<HashSet<_>>()),
-            (47, vec![61, 53, 29].into_iter().collect::<HashSet<_>>()),
-            (61, vec![53, 29].into_iter().collect::<HashSet<_>>()),
-            (53, vec![29].into_iter().collect::<HashSet<_>>()),
-            (97, vec![75].into_iter().collect::<HashSet<_>>()),
-            (29, vec![13].into_iter().collect::<HashSet<_>>()),
-        ]);
+    fn test_simulation_up_unobstructed() {
+        let input = r#"
+...
+.^.
+...
+        "#;
 
-        assert_eq!(is_valid_ordering(&adjecency_list, &[75, 47]), true);
-        assert_eq!(is_valid_ordering(&adjecency_list, &[47, 61]), true);
-        assert_eq!(is_valid_ordering(&adjecency_list, &[61, 53]), true);
+        let mut world = World::read(input);
 
-        assert_eq!(is_valid_ordering(&adjecency_list, &[47, 75]), false);
-        assert_eq!(is_valid_ordering(&adjecency_list, &[61, 47]), false);
-        assert_eq!(is_valid_ordering(&adjecency_list, &[53, 61]), false);
+        assert_eq!(world.guard_direction, Direction::Up);
+        assert_eq!(world.guard_in_world, true);
+        assert_eq!(world.guard_x, 1);
+        assert_eq!(world.guard_y, 1);
 
-        assert_eq!(
-            is_valid_ordering(&adjecency_list, &[75, 47, 61, 53, 29]),
-            true
-        );
-        assert_eq!(
-            is_valid_ordering(&adjecency_list, &[75, 97, 47, 61, 53]),
-            false
-        );
-        assert_eq!(is_valid_ordering(&adjecency_list, &[61, 13, 29]), false);
+        world.step();
+
+        assert_eq!(world.guard_direction, Direction::Up);
+        assert_eq!(world.guard_in_world, true);
+        assert_eq!(world.guard_x, 1);
+        assert_eq!(world.guard_y, 0);
+
+        world.step();
+
+        assert_eq!(world.guard_direction, Direction::Up);
+        assert_eq!(world.guard_in_world, false);
     }
 
     #[test]
-    fn test_correct_ordering() {
-        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
-            (47, vec![53, 13, 61, 29].into_iter().collect::<HashSet<_>>()),
-            (
-                97,
-                vec![13, 61, 47, 29, 53, 75]
-                    .into_iter()
-                    .collect::<HashSet<_>>(),
-            ),
-            (
-                75,
-                vec![29, 53, 47, 61, 13].into_iter().collect::<HashSet<_>>(),
-            ),
-            (61, vec![13].into_iter().collect::<HashSet<_>>()),
-            (29, vec![13].into_iter().collect::<HashSet<_>>()),
-            (53, vec![29, 13].into_iter().collect::<HashSet<_>>()),
-            (61, vec![53, 29].into_iter().collect::<HashSet<_>>()),
-        ]);
+    fn test_simulation_right_unobstructed() {
+        let input = r#"
+...
+.>.
+...
+        "#;
 
-        assert_eq!(
-            correct_ordering(&adjecency_list, &[75, 47, 61, 53, 29]),
-            vec![75, 47, 61, 53, 29]
-        );
-        assert_eq!(
-            correct_ordering(&adjecency_list, &[97, 13, 75, 29, 47]),
-            vec![97, 75, 47, 29, 13]
-        );
-        assert_eq!(
-            correct_ordering(&adjecency_list, &[75, 29, 13]),
-            vec![75, 29, 13]
-        );
-        assert_eq!(
-            correct_ordering(&adjecency_list, &[75, 97, 47, 61, 53]),
-            vec![97, 75, 47, 61, 53]
-        );
-        assert_eq!(
-            correct_ordering(&adjecency_list, &[61, 13, 29]),
-            vec![61, 29, 13]
-        );
-        assert_eq!(
-            correct_ordering(&adjecency_list, &[97, 13, 75, 29, 47]),
-            vec![97, 75, 47, 29, 13]
-        );
+        let mut world = World::read(input);
+
+        assert_eq!(world.guard_direction, Direction::Right);
+        assert_eq!(world.guard_in_world, true);
+        assert_eq!(world.guard_x, 1);
+        assert_eq!(world.guard_y, 1);
+
+        world.step();
+
+        assert_eq!(world.guard_direction, Direction::Right);
+        assert_eq!(world.guard_in_world, true);
+        assert_eq!(world.guard_x, 2);
+        assert_eq!(world.guard_y, 1);
+
+        world.step();
+
+        assert_eq!(world.guard_direction, Direction::Right);
+        assert_eq!(world.guard_in_world, false);
     }
 
     #[test]
-    fn test_correct_ordering_2() {
-        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
-            (73, vec![68].into_iter().collect::<HashSet<_>>()),
-            (88, vec![73].into_iter().collect::<HashSet<_>>()),
-        ]);
+    fn test_simulation_down_unobstructed() {
+        let input = r#"
+...
+.v.
+...
+        "#;
 
-        let corrected = correct_ordering(&adjecency_list, &[68, 73, 88]);
-        assert!(
-            is_valid_ordering(&adjecency_list, &corrected),
-            "{:?}",
-            corrected
-        );
+        let mut world = World::read(input);
 
-        let corrected = correct_ordering(&adjecency_list, &[88, 68, 73]);
-        assert!(
-            is_valid_ordering(&adjecency_list, &corrected),
-            "{:?}",
-            corrected
-        );
+        assert_eq!(world.guard_direction, Direction::Down);
+        assert_eq!(world.guard_in_world, true);
+        assert_eq!(world.guard_x, 1);
+        assert_eq!(world.guard_y, 1);
+
+        world.step();
+
+        assert_eq!(world.guard_direction, Direction::Down);
+        assert_eq!(world.guard_in_world, true);
+        assert_eq!(world.guard_x, 1);
+        assert_eq!(world.guard_y, 2);
+
+        world.step();
+
+        assert_eq!(world.guard_direction, Direction::Down);
+        assert_eq!(world.guard_in_world, false);
     }
 
     #[test]
-    fn test_correct_ordering_simple() {
-        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
-            (1, vec![2].into_iter().collect::<HashSet<_>>()),
-            (2, vec![3].into_iter().collect::<HashSet<_>>()),
-            (3, vec![4].into_iter().collect::<HashSet<_>>()),
-            (4, vec![5].into_iter().collect::<HashSet<_>>()),
-            (5, vec![6].into_iter().collect::<HashSet<_>>()),
-            (6, vec![7].into_iter().collect::<HashSet<_>>()),
-            (7, vec![8].into_iter().collect::<HashSet<_>>()),
-            (8, vec![9].into_iter().collect::<HashSet<_>>()),
-        ]);
+    fn test_simulation_left_unobstructed() {
+        let input = r#"
+...
+.<.
+...
+        "#;
 
-        assert!(is_valid_ordering(
-            &adjecency_list,
-            &correct_ordering(&adjecency_list, &[1, 2, 3, 4, 5, 6, 7, 8, 9])
-        ));
+        let mut world = World::read(input);
+
+        assert_eq!(world.guard_direction, Direction::Left);
+        assert_eq!(world.guard_in_world, true);
+        assert_eq!(world.guard_x, 1);
+        assert_eq!(world.guard_y, 1);
+
+        world.step();
+
+        assert_eq!(world.guard_direction, Direction::Left);
+        assert_eq!(world.guard_in_world, true);
+        assert_eq!(world.guard_x, 0);
+        assert_eq!(world.guard_y, 1);
+
+        world.step();
+
+        assert_eq!(world.guard_direction, Direction::Left);
+        assert_eq!(world.guard_in_world, false);
     }
 
     #[test]
-    fn test_correct_ordering_3() {
-        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
-            (1, vec![2, 3, 9].into_iter().collect::<HashSet<_>>()),
-            (2, vec![4, 5, 7, 8, 9].into_iter().collect::<HashSet<_>>()),
-            (3, vec![6, 7].into_iter().collect::<HashSet<_>>()),
-            (4, vec![7].into_iter().collect::<HashSet<_>>()),
-            (5, vec![6].into_iter().collect::<HashSet<_>>()),
-            (6, vec![7].into_iter().collect::<HashSet<_>>()),
-            (7, vec![9].into_iter().collect::<HashSet<_>>()),
-            (8, vec![9].into_iter().collect::<HashSet<_>>()),
-        ]);
+    fn test_simulation_snake() {
+        let input = r#"
+#####
+#...#
+#^..#
+....#
+#####
+        "#;
 
-        assert!(is_valid_ordering(
-            &adjecency_list,
-            &correct_ordering(&adjecency_list, &[1, 2, 3, 4, 5, 6, 7, 8, 9])
-        ));
-    }
+        let mut world = World::read(input);
 
-    #[test]
-    fn test_calculate_valid_ordering_checksum() {
-        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
-            (75, vec![47, 61, 53, 29].into_iter().collect::<HashSet<_>>()),
-            (47, vec![61, 53, 29].into_iter().collect::<HashSet<_>>()),
-            (61, vec![53, 29].into_iter().collect::<HashSet<_>>()),
-            (53, vec![29].into_iter().collect::<HashSet<_>>()),
-            (97, vec![75].into_iter().collect::<HashSet<_>>()),
-            (29, vec![13].into_iter().collect::<HashSet<_>>()),
-        ]);
+        let visited_positions = count_distinct_visited_positions(&mut world);
 
-        let ordering_checksum = calculate_valid_ordering_checksum(
-            &adjecency_list,
-            &[
-                vec![75, 47, 61, 53, 29],
-                vec![75, 97, 47, 61, 53],
-                vec![61, 13, 29],
-                vec![75, 47, 5, 53, 29],
-                vec![75, 47, 12, 53, 29],
-                vec![47, 75, 13],
-            ],
-        );
-
-        assert_eq!(ordering_checksum, 61 + 5 + 12);
-    }
-
-    #[test]
-    fn test_calculate_invalid_ordering_checksum() {
-        let adjecency_list: HashMap<usize, HashSet<usize>> = HashMap::from_iter(vec![
-            (47, vec![53, 13, 61, 29].into_iter().collect::<HashSet<_>>()),
-            (
-                97,
-                vec![13, 61, 47, 29, 53, 75]
-                    .into_iter()
-                    .collect::<HashSet<_>>(),
-            ),
-            (
-                75,
-                vec![29, 53, 47, 61, 13].into_iter().collect::<HashSet<_>>(),
-            ),
-            (61, vec![13].into_iter().collect::<HashSet<_>>()),
-            (29, vec![13].into_iter().collect::<HashSet<_>>()),
-            (53, vec![29, 13].into_iter().collect::<HashSet<_>>()),
-            (61, vec![53, 29].into_iter().collect::<HashSet<_>>()),
-        ]);
-
-        let ordering_checksum = calculate_invalid_ordering_checksum(
-            &adjecency_list,
-            &[
-                vec![75, 47, 61, 53, 29],
-                vec![97, 61, 53, 29, 13],
-                vec![75, 29, 13],
-                vec![75, 97, 47, 61, 53],
-                vec![61, 13, 29],
-                vec![97, 13, 75, 29, 47],
-            ],
-        );
-
-        assert_eq!(ordering_checksum, 47 + 29 + 47);
+        assert_eq!(visited_positions, 9);
     }
 }
