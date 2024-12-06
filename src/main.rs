@@ -7,6 +7,7 @@ enum Tile {
     Wall,
 }
 
+#[derive(Clone)]
 struct Map {
     tiles: Vec<Vec<Tile>>,
 }
@@ -23,9 +24,17 @@ impl Map {
     fn get_tile(&self, x: usize, y: usize) -> Tile {
         self.tiles[y][x]
     }
+
+    fn set_tile(&mut self, x: usize, y: usize, tile: Tile) {
+        self.tiles[y][x] = tile;
+    }
+
+    fn is_position_in_map(&self, x: isize, y: isize) -> bool {
+        x >= 0 && y >= 0 && x < self.width() as isize && y < self.height() as isize
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Direction {
     Up,
     Down,
@@ -44,6 +53,23 @@ impl Direction {
     }
 }
 
+impl TryFrom<char> for Direction {
+    type Error = ();
+
+    fn try_from(value: char) -> std::result::Result<Self, Self::Error> {
+        Ok(match value {
+            '^' => Direction::Up,
+            'v' => Direction::Down,
+            '<' => Direction::Left,
+            '>' => Direction::Right,
+            _ => {
+                return Err(());
+            }
+        })
+    }
+}
+
+#[derive(Clone)]
 struct World {
     map: Map,
     guard_direction: Direction,
@@ -53,40 +79,32 @@ struct World {
 }
 
 impl World {
+    fn next_guard_position(&self) -> (isize, isize) {
+        match self.guard_direction {
+            Direction::Up => (self.guard_x as isize, self.guard_y as isize - 1),
+            Direction::Down => (self.guard_x as isize, self.guard_y as isize + 1),
+            Direction::Left => (self.guard_x as isize - 1, self.guard_y as isize),
+            Direction::Right => (self.guard_x as isize + 1, self.guard_y as isize),
+        }
+    }
+
     fn step(&mut self) {
         if !self.guard_in_world {
             return;
         }
 
-        let (next_position_x, next_position_y) = match self.guard_direction {
-            Direction::Up => (self.guard_x as isize, self.guard_y as isize - 1),
-            Direction::Down => (self.guard_x as isize, self.guard_y as isize + 1),
-            Direction::Left => (self.guard_x as isize - 1, self.guard_y as isize),
-            Direction::Right => (self.guard_x as isize + 1, self.guard_y as isize),
-        };
+        let (next_position_x, next_position_y) = self.next_guard_position();
 
-        if next_position_x < 0 {
-            self.guard_in_world = false;
-            return;
-        }
-
-        if next_position_y < 0 {
+        if !self
+            .map
+            .is_position_in_map(next_position_x, next_position_y)
+        {
             self.guard_in_world = false;
             return;
         }
 
         let next_position_x = next_position_x as usize;
         let next_position_y = next_position_y as usize;
-
-        if next_position_x >= self.map.width() {
-            self.guard_in_world = false;
-            return;
-        }
-
-        if next_position_y >= self.map.height() {
-            self.guard_in_world = false;
-            return;
-        }
 
         let next_tile = &self.map.get_tile(next_position_x, next_position_y);
 
@@ -115,34 +133,19 @@ impl World {
             let mut row = Vec::new();
 
             for (x, c) in line.chars().enumerate() {
-                let tile = match c {
-                    '.' => Tile::Empty,
-                    '#' => Tile::Wall,
-                    '^' => {
+                let tile = {
+                    if let Ok(direction) = Direction::try_from(c) {
                         guard_x = Some(x);
                         guard_y = Some(y);
-                        guard_direction = Some(Direction::Up);
+                        guard_direction = Some(direction);
                         Tile::Empty
+                    } else {
+                        match c {
+                            '.' => Tile::Empty,
+                            '#' => Tile::Wall,
+                            _ => panic!("Unknown tile type '{}'", c),
+                        }
                     }
-                    '>' => {
-                        guard_x = Some(x);
-                        guard_y = Some(y);
-                        guard_direction = Some(Direction::Right);
-                        Tile::Empty
-                    }
-                    '<' => {
-                        guard_x = Some(x);
-                        guard_y = Some(y);
-                        guard_direction = Some(Direction::Left);
-                        Tile::Empty
-                    }
-                    'v' => {
-                        guard_x = Some(x);
-                        guard_y = Some(y);
-                        guard_direction = Some(Direction::Down);
-                        Tile::Empty
-                    }
-                    _ => panic!("Unknown tile type '{}'", c),
                 };
 
                 row.push(tile);
@@ -169,7 +172,7 @@ impl World {
     }
 }
 
-fn count_distinct_visited_positions(world: &mut World) -> usize {
+fn get_visited_positions(world: &mut World) -> Vec<(usize, usize)> {
     let mut visited_tile_positions = vec![];
 
     while world.guard_in_world {
@@ -177,21 +180,79 @@ fn count_distinct_visited_positions(world: &mut World) -> usize {
             break;
         }
 
-        visited_tile_positions.push((world.guard_x, world.guard_y));
+        if visited_tile_positions.last() != Some(&(world.guard_x, world.guard_y)) {
+            visited_tile_positions.push((world.guard_x, world.guard_y));
+        }
+
         world.step();
     }
 
-    visited_tile_positions.iter().collect::<HashSet<_>>().len()
+    visited_tile_positions
+}
+
+fn find_loop_obstruction_placements(world: &mut World) -> HashSet<(usize, usize)> {
+    let mut loop_obstruction_placements = HashSet::new();
+
+    for x in 0..world.map.width() {
+        for y in 0..world.map.height() {
+            if world.map.get_tile(x, y) == Tile::Wall {
+                continue;
+            }
+
+            if world.guard_x == x && world.guard_y == y {
+                // Skip the starting position
+                continue;
+            }
+
+            let mut simulation = world.clone();
+
+            simulation.map.set_tile(x, y, Tile::Wall);
+
+            simulation.step();
+
+            let mut visited_positions = HashSet::new();
+
+            while simulation.guard_in_world {
+                simulation.step();
+
+                if !simulation.guard_in_world {
+                    break;
+                }
+
+                if visited_positions.contains(&(
+                    simulation.guard_x,
+                    simulation.guard_y,
+                    simulation.guard_direction,
+                )) {
+                    loop_obstruction_placements.insert((x, y));
+                    break;
+                }
+
+                visited_positions.insert((
+                    simulation.guard_x,
+                    simulation.guard_y,
+                    simulation.guard_direction,
+                ));
+            }
+        }
+    }
+
+    loop_obstruction_placements
 }
 
 fn main() -> Result<()> {
     let input = fs::read_to_string("./inputs/day6.txt").expect("Failed to read file");
 
-    let mut world = World::read(&input);
+    let world = World::read(&input);
 
-    let distinct_positions = count_distinct_visited_positions(&mut world);
+    let visited_positions = get_visited_positions(&mut world.clone());
+    let distinct_positions = visited_positions.iter().collect::<HashSet<_>>().len();
 
     println!("Result (Part 1): {distinct_positions}");
+
+    let loop_obstruction_placements = find_loop_obstruction_placements(&mut world.clone());
+
+    println!("Result (Part 2): {}", loop_obstruction_placements.len());
 
     Ok(())
 }
@@ -387,8 +448,192 @@ mod tests {
 
         let mut world = World::read(input);
 
-        let visited_positions = count_distinct_visited_positions(&mut world);
+        let visited_positions = get_visited_positions(&mut world);
 
-        assert_eq!(visited_positions, 9);
+        assert_eq!(
+            visited_positions,
+            vec![
+                (1, 2),
+                (1, 1),
+                (2, 1),
+                (3, 1),
+                (3, 2),
+                (3, 3),
+                (2, 3),
+                (1, 3),
+                (0, 3)
+            ]
+        );
+    }
+
+    #[test]
+    fn test_find_loop_obstruction_placements_empty_up() {
+        let input = r#"
+..
+^.
+        "#;
+
+        let mut world = World::read(input);
+
+        let loop_placements = find_loop_obstruction_placements(&mut world);
+
+        assert_eq!(loop_placements, HashSet::new());
+    }
+
+    #[test]
+    fn test_find_loop_obstruction_placements_empty_down() {
+        let input = r#"
+v.
+..
+        "#;
+
+        let mut world = World::read(input);
+
+        let loop_placements = find_loop_obstruction_placements(&mut world);
+
+        assert_eq!(loop_placements, HashSet::new());
+    }
+
+    #[test]
+    fn test_find_loop_obstruction_placements_empty_right() {
+        let input = r#"
+>.
+..
+        "#;
+
+        let mut world = World::read(input);
+
+        let loop_placements = find_loop_obstruction_placements(&mut world);
+
+        assert_eq!(loop_placements, HashSet::new());
+    }
+
+    #[test]
+    fn test_find_loop_obstruction_placements_empty_left() {
+        let input = r#"
+..
+.<
+        "#;
+
+        let mut world = World::read(input);
+
+        let loop_placements = find_loop_obstruction_placements(&mut world);
+
+        assert_eq!(loop_placements, HashSet::new());
+    }
+
+    #[test]
+    fn test_find_loop_obstruction_placements_single_option_right() {
+        let input = r#"
+.#.
+#v.
+.#.
+        "#;
+
+        let mut world = World::read(input);
+
+        let loop_placements = find_loop_obstruction_placements(&mut world);
+
+        let expected = vec![(2, 1)].into_iter().collect::<HashSet<_>>();
+
+        assert_eq!(loop_placements, expected);
+    }
+
+    #[test]
+    fn test_find_loop_obstruction_placements_single_option_top() {
+        let input = r#"
+...
+#v#
+.#.
+        "#;
+
+        let mut world = World::read(input);
+
+        let loop_placements = find_loop_obstruction_placements(&mut world);
+
+        let expected = vec![(1, 0)].into_iter().collect::<HashSet<_>>();
+
+        assert_eq!(loop_placements, expected);
+    }
+
+    #[test]
+    fn test_find_loop_obstruction_placements_single_option_bottom() {
+        let input = r#"
+.#.
+#v#
+...
+        "#;
+
+        let mut world = World::read(input);
+
+        let loop_placements = find_loop_obstruction_placements(&mut world);
+
+        let expected = vec![(1, 2)].into_iter().collect::<HashSet<_>>();
+
+        assert_eq!(loop_placements, expected);
+    }
+
+    #[test]
+    fn test_find_loop_obstruction_placements_single_option_left() {
+        let input = r#"
+.#.
+.v#
+.#.
+        "#;
+
+        let mut world = World::read(input);
+
+        let loop_placements = find_loop_obstruction_placements(&mut world);
+
+        let expected = vec![(0, 1)].into_iter().collect::<HashSet<_>>();
+
+        assert_eq!(loop_placements, expected);
+    }
+
+    #[test]
+    fn test_find_loop_obstruction_placements_simple() {
+        let input = r#"
+.####
+....#
+.^..#
+....#
+.####
+        "#;
+
+        let mut world = World::read(input);
+
+        let loop_placements = find_loop_obstruction_placements(&mut world);
+
+        let expected = vec![(1, 3), (0, 3), (2, 3)]
+            .into_iter()
+            .collect::<HashSet<_>>();
+
+        assert_eq!(loop_placements, expected);
+    }
+
+    #[test]
+    fn test_find_loop_obstruction_placements_complex() {
+        let input = r#"
+....#.....
+.........#
+..........
+..#.......
+.......#..
+..........
+.#..^.....
+........#.
+#.........
+......#...
+        "#;
+
+        let mut world = World::read(input);
+
+        let loop_placements = find_loop_obstruction_placements(&mut world);
+
+        let expected = vec![(3, 6), (6, 7), (7, 7), (1, 8), (3, 8), (7, 9)]
+            .into_iter()
+            .collect::<HashSet<_>>();
+
+        assert_eq!(loop_placements, expected);
     }
 }
