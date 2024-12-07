@@ -1,258 +1,87 @@
 use anyhow::Result;
-use std::{collections::HashSet, fs};
+use std::{collections::HashMap, fs};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Tile {
-    Empty,
-    Wall,
+#[derive(Copy, Clone, Debug)]
+enum Operator {
+    Add,
+    Multiply,
 }
 
-#[derive(Clone)]
-struct Map {
-    tiles: Vec<Vec<Tile>>,
-}
-
-impl Map {
-    fn width(&self) -> usize {
-        self.tiles[0].len()
+fn check_equation(result: usize, operands: &[usize]) -> bool {
+    if operands.len() == 1 {
+        return operands[0] == result;
     }
 
-    fn height(&self) -> usize {
-        self.tiles.len()
-    }
+    let mut permutations: Vec<Vec<Operator>> = vec![vec![Operator::Add], vec![Operator::Multiply]];
+    for _ in 1..operands.len() - 1 {
+        let mut new_permutations = vec![];
 
-    fn get_tile(&self, x: usize, y: usize) -> Tile {
-        self.tiles[y][x]
-    }
+        for permutation in permutations {
+            let mut new_permutation = permutation.clone();
+            new_permutation.push(Operator::Add);
+            new_permutations.push(new_permutation);
 
-    fn set_tile(&mut self, x: usize, y: usize, tile: Tile) {
-        self.tiles[y][x] = tile;
-    }
-
-    fn is_position_in_map(&self, x: isize, y: isize) -> bool {
-        x >= 0 && y >= 0 && x < self.width() as isize && y < self.height() as isize
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Direction {
-    Up,
-    Down,
-    Left,
-    Right,
-}
-
-impl Direction {
-    fn rotate_clockwise(self) -> Self {
-        match self {
-            Direction::Up => Direction::Right,
-            Direction::Down => Direction::Left,
-            Direction::Left => Direction::Up,
-            Direction::Right => Direction::Down,
-        }
-    }
-}
-
-impl TryFrom<char> for Direction {
-    type Error = ();
-
-    fn try_from(value: char) -> std::result::Result<Self, Self::Error> {
-        Ok(match value {
-            '^' => Direction::Up,
-            'v' => Direction::Down,
-            '<' => Direction::Left,
-            '>' => Direction::Right,
-            _ => {
-                return Err(());
-            }
-        })
-    }
-}
-
-#[derive(Clone)]
-struct World {
-    map: Map,
-    guard_direction: Direction,
-    guard_x: usize,
-    guard_y: usize,
-    guard_in_world: bool,
-}
-
-impl World {
-    fn next_guard_position(&self) -> (isize, isize) {
-        match self.guard_direction {
-            Direction::Up => (self.guard_x as isize, self.guard_y as isize - 1),
-            Direction::Down => (self.guard_x as isize, self.guard_y as isize + 1),
-            Direction::Left => (self.guard_x as isize - 1, self.guard_y as isize),
-            Direction::Right => (self.guard_x as isize + 1, self.guard_y as isize),
-        }
-    }
-
-    fn step(&mut self) {
-        if !self.guard_in_world {
-            return;
+            let mut new_permutation = permutation.clone();
+            new_permutation.push(Operator::Multiply);
+            new_permutations.push(new_permutation);
         }
 
-        let (next_position_x, next_position_y) = self.next_guard_position();
+        permutations = new_permutations;
+    }
 
-        if !self
-            .map
-            .is_position_in_map(next_position_x, next_position_y)
-        {
-            self.guard_in_world = false;
-            return;
-        }
+    return permutations.iter().any(|operators| {
+        let mut calc_result = operands[0];
 
-        let next_position_x = next_position_x as usize;
-        let next_position_y = next_position_y as usize;
+        for i in 1..operands.len() {
+            let operand = operands[i];
+            let operator = operators[i - 1];
 
-        let next_tile = &self.map.get_tile(next_position_x, next_position_y);
-
-        match next_tile {
-            Tile::Empty => {
-                self.guard_x = next_position_x;
-                self.guard_y = next_position_y;
-            }
-            Tile::Wall => {
-                // Rotate 90 degrees to the right
-                self.guard_direction = self.guard_direction.rotate_clockwise();
+            match operator {
+                Operator::Add => calc_result += operand,
+                Operator::Multiply => calc_result *= operand,
             }
         }
-    }
 
-    fn read(input: &str) -> Self {
-        let input = input.trim();
-
-        let mut guard_x = None;
-        let mut guard_y = None;
-        let mut guard_direction = None;
-
-        let mut rows = Vec::new();
-
-        for (y, line) in input.lines().enumerate() {
-            let mut row = Vec::new();
-
-            for (x, c) in line.chars().enumerate() {
-                let tile = {
-                    if let Ok(direction) = Direction::try_from(c) {
-                        guard_x = Some(x);
-                        guard_y = Some(y);
-                        guard_direction = Some(direction);
-                        Tile::Empty
-                    } else {
-                        match c {
-                            '.' => Tile::Empty,
-                            '#' => Tile::Wall,
-                            _ => panic!("Unknown tile type '{}'", c),
-                        }
-                    }
-                };
-
-                row.push(tile);
-            }
-
-            rows.push(row);
-        }
-
-        let map = Map { tiles: rows };
-
-        let guard_x = guard_x.expect("Guard x position not found");
-        let guard_y = guard_y.expect("Guard y position not found");
-        let guard_direction = guard_direction.expect("Guard direction not found");
-
-        let world = World {
-            map,
-            guard_direction,
-            guard_x,
-            guard_y,
-            guard_in_world: true,
-        };
-
-        world
-    }
-}
-
-fn get_visited_positions(world: &mut World) -> Vec<(usize, usize)> {
-    let mut visited_tile_positions = vec![];
-
-    while world.guard_in_world {
-        if !world.guard_in_world {
-            break;
-        }
-
-        if visited_tile_positions.last() != Some(&(world.guard_x, world.guard_y)) {
-            visited_tile_positions.push((world.guard_x, world.guard_y));
-        }
-
-        world.step();
-    }
-
-    visited_tile_positions
-}
-
-fn find_loop_obstruction_placements(world: &mut World) -> HashSet<(usize, usize)> {
-    let mut loop_obstruction_placements = HashSet::new();
-
-    for x in 0..world.map.width() {
-        for y in 0..world.map.height() {
-            if world.map.get_tile(x, y) == Tile::Wall {
-                continue;
-            }
-
-            if world.guard_x == x && world.guard_y == y {
-                // Skip the starting position
-                continue;
-            }
-
-            let mut simulation = world.clone();
-
-            simulation.map.set_tile(x, y, Tile::Wall);
-
-            simulation.step();
-
-            let mut visited_positions = HashSet::new();
-
-            while simulation.guard_in_world {
-                simulation.step();
-
-                if !simulation.guard_in_world {
-                    break;
-                }
-
-                if visited_positions.contains(&(
-                    simulation.guard_x,
-                    simulation.guard_y,
-                    simulation.guard_direction,
-                )) {
-                    loop_obstruction_placements.insert((x, y));
-                    break;
-                }
-
-                visited_positions.insert((
-                    simulation.guard_x,
-                    simulation.guard_y,
-                    simulation.guard_direction,
-                ));
-            }
-        }
-    }
-
-    loop_obstruction_placements
+        calc_result == result
+    });
 }
 
 fn main() -> Result<()> {
-    let input = fs::read_to_string("./inputs/day6.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day7.txt").expect("Failed to read file");
 
-    let world = World::read(&input);
+    let mut result = 0;
 
-    let visited_positions = get_visited_positions(&mut world.clone());
-    let distinct_positions = visited_positions.iter().collect::<HashSet<_>>().len();
+    for line in input.lines() {
+        let mut split = line.trim().split(": ");
 
-    println!("Result (Part 1): {distinct_positions}");
+        let eq_result = split
+            .next()
+            .expect("Could not read result in line")
+            .parse::<usize>()
+            .expect("Could not parse result in line");
 
-    let loop_obstruction_placements = find_loop_obstruction_placements(&mut world.clone());
+        let mut operands = vec![];
 
-    println!("Result (Part 2): {}", loop_obstruction_placements.len());
+        let mut split = split
+            .next()
+            .expect("Could not read operands in line")
+            .split_whitespace();
+
+        while let Some(operand) = split.next() {
+            let operand = operand
+                .parse::<usize>()
+                .expect("Could not parse operand in line");
+            operands.push(operand);
+        }
+
+        let is_valid = check_equation(eq_result, &operands);
+
+        if is_valid {
+            result += eq_result;
+        }
+    }
+
+    println!("Result (Part 1): {result}");
 
     Ok(())
 }
@@ -262,378 +91,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_read_world_empty() {
-        let input = r#"
-...
-.^.
-...
-        "#;
-
-        let world = World::read(input);
-
-        assert_eq!(world.map.width(), 3);
-        assert_eq!(world.map.height(), 3);
-        assert!(world
-            .map
-            .tiles
-            .iter()
-            .flatten()
-            .all(|tile| *tile == Tile::Empty));
-        assert_eq!(world.guard_x, 1);
-        assert_eq!(world.guard_y, 1);
-        assert_eq!(world.guard_direction, Direction::Up);
-    }
-
-    #[test]
-    fn test_read_world_simple() {
-        let input = r#"
-.#...
-###..
-.>...
-...##
-        "#;
-
-        let world = World::read(input);
-
-        assert_eq!(world.map.width(), 5);
-        assert_eq!(world.map.height(), 4);
-
-        assert_eq!(world.map.get_tile(0, 0), Tile::Empty);
-        assert_eq!(world.map.get_tile(1, 0), Tile::Wall);
-        assert_eq!(world.map.get_tile(2, 0), Tile::Empty);
-        assert_eq!(world.map.get_tile(3, 0), Tile::Empty);
-        assert_eq!(world.map.get_tile(4, 0), Tile::Empty);
-        assert_eq!(world.map.get_tile(0, 1), Tile::Wall);
-        assert_eq!(world.map.get_tile(1, 1), Tile::Wall);
-        assert_eq!(world.map.get_tile(2, 1), Tile::Wall);
-        assert_eq!(world.map.get_tile(3, 1), Tile::Empty);
-        assert_eq!(world.map.get_tile(4, 1), Tile::Empty);
-        assert_eq!(world.map.get_tile(0, 2), Tile::Empty);
-        assert_eq!(world.map.get_tile(1, 2), Tile::Empty);
-        assert_eq!(world.map.get_tile(2, 2), Tile::Empty);
-        assert_eq!(world.map.get_tile(3, 2), Tile::Empty);
-        assert_eq!(world.map.get_tile(4, 2), Tile::Empty);
-        assert_eq!(world.map.get_tile(0, 3), Tile::Empty);
-        assert_eq!(world.map.get_tile(1, 3), Tile::Empty);
-        assert_eq!(world.map.get_tile(2, 3), Tile::Empty);
-        assert_eq!(world.map.get_tile(3, 3), Tile::Wall);
-        assert_eq!(world.map.get_tile(4, 3), Tile::Wall);
-
-        assert_eq!(world.guard_x, 1);
-        assert_eq!(world.guard_y, 2);
-        assert_eq!(world.guard_direction, Direction::Right);
-    }
-
-    #[test]
-    fn test_simulation_up_unobstructed() {
-        let input = r#"
-...
-.^.
-...
-        "#;
-
-        let mut world = World::read(input);
-
-        assert_eq!(world.guard_direction, Direction::Up);
-        assert_eq!(world.guard_in_world, true);
-        assert_eq!(world.guard_x, 1);
-        assert_eq!(world.guard_y, 1);
-
-        world.step();
-
-        assert_eq!(world.guard_direction, Direction::Up);
-        assert_eq!(world.guard_in_world, true);
-        assert_eq!(world.guard_x, 1);
-        assert_eq!(world.guard_y, 0);
-
-        world.step();
-
-        assert_eq!(world.guard_direction, Direction::Up);
-        assert_eq!(world.guard_in_world, false);
-    }
-
-    #[test]
-    fn test_simulation_right_unobstructed() {
-        let input = r#"
-...
-.>.
-...
-        "#;
-
-        let mut world = World::read(input);
-
-        assert_eq!(world.guard_direction, Direction::Right);
-        assert_eq!(world.guard_in_world, true);
-        assert_eq!(world.guard_x, 1);
-        assert_eq!(world.guard_y, 1);
-
-        world.step();
-
-        assert_eq!(world.guard_direction, Direction::Right);
-        assert_eq!(world.guard_in_world, true);
-        assert_eq!(world.guard_x, 2);
-        assert_eq!(world.guard_y, 1);
-
-        world.step();
-
-        assert_eq!(world.guard_direction, Direction::Right);
-        assert_eq!(world.guard_in_world, false);
-    }
-
-    #[test]
-    fn test_simulation_down_unobstructed() {
-        let input = r#"
-...
-.v.
-...
-        "#;
-
-        let mut world = World::read(input);
-
-        assert_eq!(world.guard_direction, Direction::Down);
-        assert_eq!(world.guard_in_world, true);
-        assert_eq!(world.guard_x, 1);
-        assert_eq!(world.guard_y, 1);
-
-        world.step();
-
-        assert_eq!(world.guard_direction, Direction::Down);
-        assert_eq!(world.guard_in_world, true);
-        assert_eq!(world.guard_x, 1);
-        assert_eq!(world.guard_y, 2);
-
-        world.step();
-
-        assert_eq!(world.guard_direction, Direction::Down);
-        assert_eq!(world.guard_in_world, false);
-    }
-
-    #[test]
-    fn test_simulation_left_unobstructed() {
-        let input = r#"
-...
-.<.
-...
-        "#;
-
-        let mut world = World::read(input);
-
-        assert_eq!(world.guard_direction, Direction::Left);
-        assert_eq!(world.guard_in_world, true);
-        assert_eq!(world.guard_x, 1);
-        assert_eq!(world.guard_y, 1);
-
-        world.step();
-
-        assert_eq!(world.guard_direction, Direction::Left);
-        assert_eq!(world.guard_in_world, true);
-        assert_eq!(world.guard_x, 0);
-        assert_eq!(world.guard_y, 1);
-
-        world.step();
-
-        assert_eq!(world.guard_direction, Direction::Left);
-        assert_eq!(world.guard_in_world, false);
-    }
-
-    #[test]
-    fn test_simulation_snake() {
-        let input = r#"
-#####
-#...#
-#^..#
-....#
-#####
-        "#;
-
-        let mut world = World::read(input);
-
-        let visited_positions = get_visited_positions(&mut world);
-
-        assert_eq!(
-            visited_positions,
-            vec![
-                (1, 2),
-                (1, 1),
-                (2, 1),
-                (3, 1),
-                (3, 2),
-                (3, 3),
-                (2, 3),
-                (1, 3),
-                (0, 3)
-            ]
-        );
-    }
-
-    #[test]
-    fn test_find_loop_obstruction_placements_empty_up() {
-        let input = r#"
-..
-^.
-        "#;
-
-        let mut world = World::read(input);
-
-        let loop_placements = find_loop_obstruction_placements(&mut world);
-
-        assert_eq!(loop_placements, HashSet::new());
-    }
-
-    #[test]
-    fn test_find_loop_obstruction_placements_empty_down() {
-        let input = r#"
-v.
-..
-        "#;
-
-        let mut world = World::read(input);
-
-        let loop_placements = find_loop_obstruction_placements(&mut world);
-
-        assert_eq!(loop_placements, HashSet::new());
-    }
-
-    #[test]
-    fn test_find_loop_obstruction_placements_empty_right() {
-        let input = r#"
->.
-..
-        "#;
-
-        let mut world = World::read(input);
-
-        let loop_placements = find_loop_obstruction_placements(&mut world);
-
-        assert_eq!(loop_placements, HashSet::new());
-    }
-
-    #[test]
-    fn test_find_loop_obstruction_placements_empty_left() {
-        let input = r#"
-..
-.<
-        "#;
-
-        let mut world = World::read(input);
-
-        let loop_placements = find_loop_obstruction_placements(&mut world);
-
-        assert_eq!(loop_placements, HashSet::new());
-    }
-
-    #[test]
-    fn test_find_loop_obstruction_placements_single_option_right() {
-        let input = r#"
-.#.
-#v.
-.#.
-        "#;
-
-        let mut world = World::read(input);
-
-        let loop_placements = find_loop_obstruction_placements(&mut world);
-
-        let expected = vec![(2, 1)].into_iter().collect::<HashSet<_>>();
-
-        assert_eq!(loop_placements, expected);
-    }
-
-    #[test]
-    fn test_find_loop_obstruction_placements_single_option_top() {
-        let input = r#"
-...
-#v#
-.#.
-        "#;
-
-        let mut world = World::read(input);
-
-        let loop_placements = find_loop_obstruction_placements(&mut world);
-
-        let expected = vec![(1, 0)].into_iter().collect::<HashSet<_>>();
-
-        assert_eq!(loop_placements, expected);
-    }
-
-    #[test]
-    fn test_find_loop_obstruction_placements_single_option_bottom() {
-        let input = r#"
-.#.
-#v#
-...
-        "#;
-
-        let mut world = World::read(input);
-
-        let loop_placements = find_loop_obstruction_placements(&mut world);
-
-        let expected = vec![(1, 2)].into_iter().collect::<HashSet<_>>();
-
-        assert_eq!(loop_placements, expected);
-    }
-
-    #[test]
-    fn test_find_loop_obstruction_placements_single_option_left() {
-        let input = r#"
-.#.
-.v#
-.#.
-        "#;
-
-        let mut world = World::read(input);
-
-        let loop_placements = find_loop_obstruction_placements(&mut world);
-
-        let expected = vec![(0, 1)].into_iter().collect::<HashSet<_>>();
-
-        assert_eq!(loop_placements, expected);
-    }
-
-    #[test]
-    fn test_find_loop_obstruction_placements_simple() {
-        let input = r#"
-.####
-....#
-.^..#
-....#
-.####
-        "#;
-
-        let mut world = World::read(input);
-
-        let loop_placements = find_loop_obstruction_placements(&mut world);
-
-        let expected = vec![(1, 3), (0, 3), (2, 3)]
-            .into_iter()
-            .collect::<HashSet<_>>();
-
-        assert_eq!(loop_placements, expected);
-    }
-
-    #[test]
-    fn test_find_loop_obstruction_placements_complex() {
-        let input = r#"
-....#.....
-.........#
-..........
-..#.......
-.......#..
-..........
-.#..^.....
-........#.
-#.........
-......#...
-        "#;
-
-        let mut world = World::read(input);
-
-        let loop_placements = find_loop_obstruction_placements(&mut world);
-
-        let expected = vec![(3, 6), (6, 7), (7, 7), (1, 8), (3, 8), (7, 9)]
-            .into_iter()
-            .collect::<HashSet<_>>();
-
-        assert_eq!(loop_placements, expected);
+    fn test_check_equation() {
+        assert_eq!(check_equation(2, &[1, 1]), true);
+        assert_eq!(check_equation(8, &[2, 4]), true);
+        assert_eq!(check_equation(8, &[2, 2, 2]), true);
+        assert_eq!(check_equation(16, &[2, 2, 2, 2]), true);
+        assert_eq!(check_equation(18, &[2, 2, 2, 2, 2]), true);
+
+        // From the example
+        assert_eq!(check_equation(190, &[10, 19]), true);
+        assert_eq!(check_equation(3267, &[81, 40, 27]), true);
+        assert_eq!(check_equation(83, &[17, 5]), false);
+        assert_eq!(check_equation(156, &[15, 6]), false);
+        assert_eq!(check_equation(7290, &[6, 8, 6, 15]), false);
+        assert_eq!(check_equation(161011, &[16, 10, 13]), false);
+        assert_eq!(check_equation(192, &[17, 8, 14]), false);
+        assert_eq!(check_equation(21037, &[9, 7, 18, 13]), false);
+        assert_eq!(check_equation(292, &[11, 6, 16, 20]), true);
     }
 }
