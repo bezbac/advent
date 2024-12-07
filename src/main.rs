@@ -1,4 +1,3 @@
-use anyhow::Result;
 use std::fs;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -8,30 +7,29 @@ enum Operator {
     Concat,
 }
 
+impl Operator {
+    fn evaluate_eq(self, a: usize, b: usize) -> usize {
+        match self {
+            Operator::Add => a + b,
+            Operator::Multiply => a * b,
+            Operator::Concat => format!("{a}{b}").parse().unwrap(),
+        }
+    }
+}
+
 fn check_permutation(result: usize, operands: &[usize], operators: &[Operator]) -> bool {
     let mut calc_result = operands[0];
 
     for i in 1..operands.len() {
         let operand = operands[i];
         let operator = operators[i - 1];
-
-        match operator {
-            Operator::Add => calc_result += operand,
-            Operator::Multiply => calc_result *= operand,
-            Operator::Concat => {
-                calc_result = format!("{}{}", calc_result, operand).parse().unwrap();
-            }
-        }
+        calc_result = operator.evaluate_eq(calc_result, operand);
     }
 
     calc_result == result
 }
 
-fn check_equation(result: usize, operands: &[usize], operators: &[Operator]) -> bool {
-    if operands.len() == 1 {
-        return operands[0] == result;
-    }
-
+fn create_permutations(operators: &[Operator], n: usize) -> Vec<Vec<Operator>> {
     let mut operators = operators.to_vec();
     operators.sort();
     operators.dedup();
@@ -39,7 +37,7 @@ fn check_equation(result: usize, operands: &[usize], operators: &[Operator]) -> 
     let mut permutations: Vec<Vec<Operator>> =
         operators.iter().map(|operator| vec![*operator]).collect();
 
-    for _ in 1..operands.len() - 1 {
+    for _ in 1..n {
         let mut new_permutations = vec![];
 
         for permutation in permutations {
@@ -53,12 +51,20 @@ fn check_equation(result: usize, operands: &[usize], operators: &[Operator]) -> 
         permutations = new_permutations;
     }
 
-    return permutations
+    permutations
+}
+
+fn check_equation(result: usize, operands: &[usize], operators: &[Operator]) -> bool {
+    if operands.len() == 1 {
+        return operands[0] == result;
+    }
+
+    return create_permutations(operators, operands.len() - 1)
         .iter()
         .any(|operators| check_permutation(result, operands, operators));
 }
 
-fn main() -> Result<()> {
+fn main() {
     let input = fs::read_to_string("./inputs/day7.txt").expect("Failed to read file");
 
     let mut parsed = vec![];
@@ -74,12 +80,12 @@ fn main() -> Result<()> {
 
         let mut operands = vec![];
 
-        let mut split = split
+        let split = split
             .next()
             .expect("Could not read operands in line")
             .split_whitespace();
 
-        while let Some(operand) = split.next() {
+        for operand in split {
             let operand = operand
                 .parse::<usize>()
                 .expect("Could not parse operand in line");
@@ -92,7 +98,7 @@ fn main() -> Result<()> {
     let mut result = 0;
 
     for (eq_result, operands) in &parsed {
-        let is_valid = check_equation(*eq_result, &operands, &[Operator::Add, Operator::Multiply]);
+        let is_valid = check_equation(*eq_result, operands, &[Operator::Add, Operator::Multiply]);
 
         if is_valid {
             result += eq_result;
@@ -106,7 +112,7 @@ fn main() -> Result<()> {
     for (eq_result, operands) in &parsed {
         let is_valid = check_equation(
             *eq_result,
-            &operands,
+            operands,
             &[Operator::Add, Operator::Multiply, Operator::Concat],
         );
 
@@ -115,9 +121,7 @@ fn main() -> Result<()> {
         }
     }
 
-    println!("Result (Part 1): {result}");
-
-    Ok(())
+    println!("Result (Part 2): {result}");
 }
 
 #[cfg(test)]
