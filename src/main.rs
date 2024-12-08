@@ -41,7 +41,7 @@ impl Map {
         }
     }
 
-    fn find_antinodes(&self) -> HashSet<(usize, usize)> {
+    fn find_antinodes(&self, include_harmonic: bool) -> HashSet<(usize, usize)> {
         let mut antinodes = HashSet::new();
 
         for (i, a) in self.nodes.iter().enumerate() {
@@ -51,6 +51,11 @@ impl Map {
                 }
 
                 let points = get_line_points(self.width, self.height, a, b);
+
+                if include_harmonic {
+                    antinodes.extend(points.iter().cloned());
+                    continue;
+                }
 
                 for point in points {
                     if point == *a || point == *b {
@@ -141,12 +146,12 @@ impl MultiFreqMap {
         Self { freqs: result }
     }
 
-    fn find_antinodes(&self) -> HashSet<(char, usize, usize)> {
+    fn find_antinodes(&self, include_harmonic: bool) -> HashSet<(char, usize, usize)> {
         let mut antinodes = HashSet::new();
 
         for (freq, map) in &self.freqs {
             antinodes.extend(
-                map.find_antinodes()
+                map.find_antinodes(include_harmonic)
                     .iter()
                     .map(|point| (*freq, point.0, point.1)),
             );
@@ -166,7 +171,7 @@ fn main() -> Result<()> {
 
     let map = MultiFreqMap::parse(&input, &freqs);
 
-    let antinodes = map.find_antinodes();
+    let antinodes = map.find_antinodes(false);
 
     let unique_positions = antinodes
         .iter()
@@ -176,6 +181,17 @@ fn main() -> Result<()> {
     let result = unique_positions.len();
 
     println!("Result (Part 1): {result}");
+
+    let antinodes = map.find_antinodes(true);
+
+    let unique_positions = antinodes
+        .iter()
+        .map(|(_, x, y)| (x, y))
+        .collect::<HashSet<_>>();
+
+    let result = unique_positions.len();
+
+    println!("Result (Part 2): {result}");
 
     Ok(())
 }
@@ -219,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_antinodes_first() {
+    fn test_find_antinodes_freq_first() {
         let input = r#"
 ..........
 ..........
@@ -236,13 +252,13 @@ mod tests {
         let map = Map::parse(input, 'a');
 
         assert_eq!(
-            map.find_antinodes(),
+            map.find_antinodes(false),
             [(3, 1), (6, 7)].iter().cloned().collect::<HashSet<_>>()
         );
     }
 
     #[test]
-    fn test_find_antinodes_second() {
+    fn test_find_antinodes_freq_second() {
         let input = r#"
 ..........
 ..........
@@ -259,7 +275,7 @@ mod tests {
         let map = Map::parse(input, 'a');
 
         assert_eq!(
-            map.find_antinodes(),
+            map.find_antinodes(false),
             [(3, 1), (6, 7), (2, 6), (0, 2)]
                 .iter()
                 .cloned()
@@ -268,7 +284,49 @@ mod tests {
     }
 
     #[test]
-    fn test_find_antinodes_multiple_frequencies() {
+    fn test_find_antinodes_harmonic() {
+        let input = r#"
+T....#....
+...T......
+.T....#...
+.........#
+..#.......
+..........
+...#......
+..........
+....#.....
+.......... 
+        "#;
+
+        let map = Map::parse(input, 'T');
+
+        let antinodes = map.find_antinodes(true);
+
+        let expected: HashSet<(usize, usize)> = [
+            (0, 0),
+            (5, 0),
+            (3, 1),
+            (1, 2),
+            (6, 2),
+            (9, 3),
+            (2, 4),
+            (3, 6),
+            (4, 8),
+        ]
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>();
+
+        assert_eq!(
+            antinodes.difference(&expected).collect::<HashSet<_>>(),
+            HashSet::new()
+        );
+
+        assert_eq!(antinodes, expected);
+    }
+
+    #[test]
+    fn test_find_antinodes_multiple_frequencies_freq() {
         let input = r#"
 ............
 ........0...
@@ -292,7 +350,7 @@ mod tests {
         });
 
         assert_eq!(
-            map.find_antinodes(),
+            map.find_antinodes(false),
             [
                 ('0', 3, 6),
                 ('0', 10, 2),
@@ -314,5 +372,39 @@ mod tests {
             .cloned()
             .collect::<HashSet<_>>()
         );
+    }
+
+    #[test]
+    fn test_find_antinodes_multiple_frequencies_harmonic() {
+        let input = r#"
+............
+........0...
+.....0......
+.......0....
+....0.......
+......A.....
+............
+............
+........A...
+.........A..
+............
+............
+        "#;
+
+        let map = MultiFreqMap::parse(input, &{
+            let mut set = HashSet::new();
+            set.insert('A');
+            set.insert('0');
+            set
+        });
+
+        let antinodes = map.find_antinodes(true);
+
+        let unique_positions = antinodes
+            .iter()
+            .map(|(_, x, y)| (x, y))
+            .collect::<HashSet<_>>();
+
+        assert_eq!(unique_positions.len(), 34);
     }
 }
