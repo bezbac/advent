@@ -1,4 +1,3 @@
-use anyhow::Result;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -53,7 +52,7 @@ impl Map {
                 let points = get_line_points(self.width, self.height, a, b);
 
                 if include_harmonic {
-                    antinodes.extend(points.iter().cloned());
+                    antinodes.extend(points.iter().copied());
                     continue;
                 }
 
@@ -161,7 +160,7 @@ impl MultiFreqMap {
     }
 }
 
-fn main() -> Result<()> {
+fn main() {
     let input = fs::read_to_string("./inputs/day8.txt").expect("Failed to read file");
 
     let freqs = input
@@ -192,8 +191,6 @@ fn main() -> Result<()> {
     let result = unique_positions.len();
 
     println!("Result (Part 2): {result}");
-
-    Ok(())
 }
 
 #[cfg(test)]
