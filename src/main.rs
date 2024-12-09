@@ -18,17 +18,17 @@ fn discmap_to_blocks(discmap: &str) -> Vec<Block> {
 
         let num = char.to_digit(10).unwrap();
 
-        if !is_file {
-            for _ in 0..num {
-                result.push(Block::Empty);
-            }
-            is_file = true;
-        } else {
+        if is_file {
             for _ in 0..num {
                 result.push(Block::File(file_id));
             }
             is_file = false;
             file_id += 1;
+        } else {
+            for _ in 0..num {
+                result.push(Block::Empty);
+            }
+            is_file = true;
         }
     }
 
@@ -101,7 +101,6 @@ fn compact_blocks_whole(blocks: &[Block]) -> Vec<Block> {
                     result.swap(i + k, j - k);
                 }
 
-                j -= required_blocks;
                 continue 'outer;
             }
         }
