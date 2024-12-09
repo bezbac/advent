@@ -1,4 +1,3 @@
-use anyhow::Result;
 use std::fs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,7 +35,7 @@ fn discmap_to_blocks(discmap: &str) -> Vec<Block> {
     result
 }
 
-fn compact_blocks(blocks: &[Block]) -> Vec<Block> {
+fn compact_blocks_fragmented(blocks: &[Block]) -> Vec<Block> {
     let mut result = blocks.to_vec();
 
     let mut i = 0;
@@ -61,6 +60,58 @@ fn compact_blocks(blocks: &[Block]) -> Vec<Block> {
     result
 }
 
+fn compact_blocks_whole(blocks: &[Block]) -> Vec<Block> {
+    let mut result = blocks.to_vec();
+
+    let mut j = blocks.len() - 1;
+    'outer: loop {
+        if j == 0 {
+            break;
+        }
+
+        while result[j] == Block::Empty {
+            j -= 1;
+        }
+
+        let Block::File(file_id) = result[j] else {
+            panic!("Expected file block");
+        };
+
+        let mut required_blocks = 1;
+        while j >= required_blocks && result[j - required_blocks] == Block::File(file_id) {
+            required_blocks += 1;
+        }
+
+        if j + 1 - required_blocks == 0 {
+            break;
+        }
+
+        for i in 0..j {
+            if result[i] != Block::Empty {
+                continue;
+            }
+
+            let mut available_blocks = 0;
+            while result[i + available_blocks] == Block::Empty {
+                available_blocks += 1;
+            }
+
+            if available_blocks >= required_blocks {
+                for k in 0..required_blocks {
+                    result.swap(i + k, j - k);
+                }
+
+                j -= required_blocks;
+                continue 'outer;
+            }
+        }
+
+        j -= required_blocks;
+    }
+
+    result
+}
+
 fn checksum(compacted: &[Block]) -> usize {
     let mut result = 0;
 
@@ -76,19 +127,31 @@ fn checksum(compacted: &[Block]) -> usize {
     result
 }
 
-fn main() -> Result<()> {
+fn main() {
     let input = fs::read_to_string("./inputs/day9.txt").expect("Failed to read file");
 
-    let result = checksum(&compact_blocks(&discmap_to_blocks(&input)));
+    let result = checksum(&compact_blocks_fragmented(&discmap_to_blocks(&input)));
 
     println!("Result (Part 1): {result}");
 
-    Ok(())
+    let result = checksum(&compact_blocks_whole(&discmap_to_blocks(&input)));
+
+    println!("Result (Part 2): {result}");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn serialize_blocks(blocks: &[Block]) -> String {
+        blocks
+            .iter()
+            .map(|b| match b {
+                Block::Empty => '.',
+                Block::File(file_id) => std::char::from_digit(*file_id as u32, 10).unwrap(),
+            })
+            .collect()
+    }
 
     fn parse_blocks(input: &str) -> Vec<Block> {
         let mut result = vec![];
@@ -115,12 +178,22 @@ mod tests {
     #[test]
     fn test_compact_blocks() {
         assert_eq!(
-            compact_blocks(&parse_blocks("0..111....22222")),
+            compact_blocks_fragmented(&parse_blocks("0..111....22222")),
             parse_blocks("022111222......")
         );
         assert_eq!(
-            compact_blocks(&parse_blocks("00...111...2...333.44.5555.6666.777.888899")),
+            compact_blocks_fragmented(&parse_blocks("00...111...2...333.44.5555.6666.777.888899")),
             parse_blocks("0099811188827773336446555566..............")
+        );
+    }
+
+    #[test]
+    fn test_compact_blocks_whole() {
+        assert_eq!(
+            serialize_blocks(&compact_blocks_whole(&parse_blocks(
+                "00...111...2...333.44.5555.6666.777.888899"
+            ))),
+            "00992111777.44.333....5555.6666.....8888.."
         );
     }
 
@@ -129,6 +202,10 @@ mod tests {
         assert_eq!(
             checksum(&parse_blocks("0099811188827773336446555566..............")),
             1928
+        );
+        assert_eq!(
+            checksum(&parse_blocks("00992111777.44.333....5555.6666.....8888..")),
+            2858
         );
     }
 }
