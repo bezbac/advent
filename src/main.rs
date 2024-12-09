@@ -1,407 +1,134 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fs,
-};
+use anyhow::Result;
+use std::fs;
 
-struct Map {
-    width: usize,
-    height: usize,
-    nodes: HashSet<(usize, usize)>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Block {
+    Empty,
+    File(usize),
 }
 
-impl Map {
-    fn parse(input: &str, freq: char) -> Self {
-        let input = input.trim();
+fn discmap_to_blocks(discmap: &str) -> Vec<Block> {
+    let mut result = vec![];
+    let mut is_file = true;
+    let mut file_id = 0;
 
-        let mut nodes = HashSet::new();
-
-        let mut width = 0;
-        let mut height = 0;
-        for (y, line) in input.lines().enumerate() {
-            if y > height {
-                height = y;
-            }
-
-            for (x, c) in line.chars().enumerate() {
-                if x > width {
-                    width = x;
-                }
-
-                if c == freq {
-                    nodes.insert((x, y));
-                }
-            }
+    for char in discmap.chars() {
+        if char == '\n' {
+            continue;
         }
 
-        Self {
-            width,
-            height,
-            nodes,
+        let num = char.to_digit(10).unwrap();
+
+        if !is_file {
+            for _ in 0..num {
+                result.push(Block::Empty);
+            }
+            is_file = true;
+        } else {
+            for _ in 0..num {
+                result.push(Block::File(file_id));
+            }
+            is_file = false;
+            file_id += 1;
         }
     }
 
-    fn find_antinodes(&self, include_harmonic: bool) -> HashSet<(usize, usize)> {
-        let mut antinodes = HashSet::new();
-
-        for (i, a) in self.nodes.iter().enumerate() {
-            for (j, b) in self.nodes.iter().enumerate() {
-                if i == j {
-                    continue;
-                }
-
-                let points = get_line_points(self.width, self.height, a, b);
-
-                if include_harmonic {
-                    antinodes.extend(points.iter().copied());
-                    continue;
-                }
-
-                for point in points {
-                    if point == *a || point == *b {
-                        continue;
-                    }
-
-                    let dist_a = (point.0 as isize - a.0 as isize).abs()
-                        + (point.1 as isize - a.1 as isize).abs();
-
-                    let dist_b = (point.0 as isize - b.0 as isize).abs()
-                        + (point.1 as isize - b.1 as isize).abs();
-
-                    if dist_a == dist_b * 2 || dist_b == dist_a * 2 {
-                        antinodes.insert(point);
-                    }
-                }
-            }
-        }
-
-        antinodes
-    }
+    result
 }
 
-fn is_in_bounds(width: usize, height: usize, x: isize, y: isize) -> bool {
-    x >= 0 && x <= width as isize && y >= 0 && y <= height as isize
-}
-
-fn get_line_points(
-    width: usize,
-    height: usize,
-    a: &(usize, usize),
-    b: &(usize, usize),
-) -> HashSet<(usize, usize)> {
-    let (x1, y1) = a;
-    let (x2, y2) = b;
-
-    let mut x_step = *x2 as isize - *x1 as isize;
-    let mut y_step = *y2 as isize - *y1 as isize;
-
-    while x_step % 2 == 0 && y_step % 2 == 0 {
-        x_step /= 2;
-        y_step /= 2;
-    }
-
-    let mut points = HashSet::new();
+fn compact_blocks(blocks: &[Block]) -> Vec<Block> {
+    let mut result = blocks.to_vec();
 
     let mut i = 0;
-    loop {
-        let new_x = *x1 as isize + x_step * i;
-        let new_y = *y1 as isize + y_step * i;
+    let mut j = blocks.len() - 1;
 
-        if !is_in_bounds(width, height, new_x, new_y) {
+    loop {
+        while result[i] != Block::Empty {
+            i += 1;
+        }
+
+        while result[j] == Block::Empty {
+            j -= 1;
+        }
+
+        if i >= j {
             break;
         }
 
-        i += 1;
-        points.insert((new_x as usize, new_y as usize));
+        result.swap(i, j);
     }
 
-    let mut i = 0;
-    loop {
-        let new_x = *x1 as isize - x_step * i;
-        let new_y = *y1 as isize - y_step * i;
-
-        if !is_in_bounds(width, height, new_x, new_y) {
-            break;
-        }
-
-        i += 1;
-        points.insert((new_x as usize, new_y as usize));
-    }
-
-    points
+    result
 }
 
-struct MultiFreqMap {
-    freqs: HashMap<char, Map>,
-}
+fn checksum(compacted: &[Block]) -> usize {
+    let mut result = 0;
 
-impl MultiFreqMap {
-    fn parse(input: &str, freqs: &HashSet<char>) -> Self {
-        let mut result = HashMap::new();
-
-        for freq in freqs {
-            result.insert(*freq, Map::parse(input, *freq));
+    for (index, block) in compacted.iter().enumerate() {
+        match block {
+            Block::Empty => continue,
+            Block::File(file_id) => {
+                result += index * file_id;
+            }
         }
-
-        Self { freqs: result }
     }
 
-    fn find_antinodes(&self, include_harmonic: bool) -> HashSet<(char, usize, usize)> {
-        let mut antinodes = HashSet::new();
-
-        for (freq, map) in &self.freqs {
-            antinodes.extend(
-                map.find_antinodes(include_harmonic)
-                    .iter()
-                    .map(|point| (*freq, point.0, point.1)),
-            );
-        }
-
-        antinodes
-    }
+    result
 }
 
-fn main() {
-    let input = fs::read_to_string("./inputs/day8.txt").expect("Failed to read file");
+fn main() -> Result<()> {
+    let input = fs::read_to_string("./inputs/day9.txt").expect("Failed to read file");
 
-    let freqs = input
-        .chars()
-        .filter(|c| c != &'.' && c != &'\n')
-        .collect::<HashSet<_>>();
-
-    let map = MultiFreqMap::parse(&input, &freqs);
-
-    let antinodes = map.find_antinodes(false);
-
-    let unique_positions = antinodes
-        .iter()
-        .map(|(_, x, y)| (x, y))
-        .collect::<HashSet<_>>();
-
-    let result = unique_positions.len();
+    let result = checksum(&compact_blocks(&discmap_to_blocks(&input)));
 
     println!("Result (Part 1): {result}");
 
-    let antinodes = map.find_antinodes(true);
-
-    let unique_positions = antinodes
-        .iter()
-        .map(|(_, x, y)| (x, y))
-        .collect::<HashSet<_>>();
-
-    let result = unique_positions.len();
-
-    println!("Result (Part 2): {result}");
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn parse_blocks(input: &str) -> Vec<Block> {
+        let mut result = vec![];
+
+        for c in input.chars() {
+            match c {
+                '.' => result.push(Block::Empty),
+                _ => result.push(Block::File(c.to_digit(10).unwrap() as usize)),
+            }
+        }
+
+        result
+    }
+
     #[test]
-    fn test_parse_map() {
-        let input = r#"
-..........
-...#......
-..........
-....a.....
-..........
-.....a....
-..........
-......#...
-..........
-.......... 
-        "#;
-
-        let map = Map::parse(input, 'a');
-
+    fn test_discmap_to_blocks() {
+        assert_eq!(discmap_to_blocks("12345"), parse_blocks("0..111....22222"));
         assert_eq!(
-            map.nodes,
-            [(4, 3), (5, 5)].iter().cloned().collect::<HashSet<_>>()
+            discmap_to_blocks("2333133121414131402"),
+            parse_blocks("00...111...2...333.44.5555.6666.777.888899")
         );
     }
 
     #[test]
-    fn test_get_line_points() {
+    fn test_compact_blocks() {
         assert_eq!(
-            get_line_points(9, 9, &(4, 3), &(5, 5)),
-            [(4, 3), (5, 5), (6, 7), (7, 9), (3, 1)]
-                .iter()
-                .cloned()
-                .collect::<HashSet<_>>()
+            compact_blocks(&parse_blocks("0..111....22222")),
+            parse_blocks("022111222......")
+        );
+        assert_eq!(
+            compact_blocks(&parse_blocks("00...111...2...333.44.5555.6666.777.888899")),
+            parse_blocks("0099811188827773336446555566..............")
         );
     }
 
     #[test]
-    fn test_find_antinodes_freq_first() {
-        let input = r#"
-..........
-..........
-..........
-....a.....
-..........
-.....a....
-..........
-..........
-..........
-.......... 
-        "#;
-
-        let map = Map::parse(input, 'a');
-
+    fn test_checksum() {
         assert_eq!(
-            map.find_antinodes(false),
-            [(3, 1), (6, 7)].iter().cloned().collect::<HashSet<_>>()
+            checksum(&parse_blocks("0099811188827773336446555566..............")),
+            1928
         );
-    }
-
-    #[test]
-    fn test_find_antinodes_freq_second() {
-        let input = r#"
-..........
-..........
-..........
-....a.....
-........a.
-.....a....
-..........
-..........
-..........
-.......... 
-        "#;
-
-        let map = Map::parse(input, 'a');
-
-        assert_eq!(
-            map.find_antinodes(false),
-            [(3, 1), (6, 7), (2, 6), (0, 2)]
-                .iter()
-                .cloned()
-                .collect::<HashSet<_>>()
-        );
-    }
-
-    #[test]
-    fn test_find_antinodes_harmonic() {
-        let input = r#"
-T....#....
-...T......
-.T....#...
-.........#
-..#.......
-..........
-...#......
-..........
-....#.....
-.......... 
-        "#;
-
-        let map = Map::parse(input, 'T');
-
-        let antinodes = map.find_antinodes(true);
-
-        let expected: HashSet<(usize, usize)> = [
-            (0, 0),
-            (5, 0),
-            (3, 1),
-            (1, 2),
-            (6, 2),
-            (9, 3),
-            (2, 4),
-            (3, 6),
-            (4, 8),
-        ]
-        .iter()
-        .cloned()
-        .collect::<HashSet<_>>();
-
-        assert_eq!(
-            antinodes.difference(&expected).collect::<HashSet<_>>(),
-            HashSet::new()
-        );
-
-        assert_eq!(antinodes, expected);
-    }
-
-    #[test]
-    fn test_find_antinodes_multiple_frequencies_freq() {
-        let input = r#"
-............
-........0...
-.....0......
-.......0....
-....0.......
-......A.....
-............
-............
-........A...
-.........A..
-............
-............
-        "#;
-
-        let map = MultiFreqMap::parse(input, &{
-            let mut set = HashSet::new();
-            set.insert('A');
-            set.insert('0');
-            set
-        });
-
-        assert_eq!(
-            map.find_antinodes(false),
-            [
-                ('0', 3, 6),
-                ('0', 10, 2),
-                ('0', 11, 0),
-                ('0', 6, 0),
-                ('0', 6, 5),
-                ('0', 9, 4),
-                ('0', 1, 5),
-                ('0', 3, 1),
-                ('0', 2, 3),
-                ('0', 0, 7),
-                ('A', 7, 7),
-                ('A', 4, 2),
-                ('A', 10, 11),
-                ('A', 10, 10),
-                ('A', 3, 1)
-            ]
-            .iter()
-            .cloned()
-            .collect::<HashSet<_>>()
-        );
-    }
-
-    #[test]
-    fn test_find_antinodes_multiple_frequencies_harmonic() {
-        let input = r#"
-............
-........0...
-.....0......
-.......0....
-....0.......
-......A.....
-............
-............
-........A...
-.........A..
-............
-............
-        "#;
-
-        let map = MultiFreqMap::parse(input, &{
-            let mut set = HashSet::new();
-            set.insert('A');
-            set.insert('0');
-            set
-        });
-
-        let antinodes = map.find_antinodes(true);
-
-        let unique_positions = antinodes
-            .iter()
-            .map(|(_, x, y)| (x, y))
-            .collect::<HashSet<_>>();
-
-        assert_eq!(unique_positions.len(), 34);
     }
 }
