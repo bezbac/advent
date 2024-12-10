@@ -127,6 +127,44 @@ impl Graph {
         }
     }
 
+    fn find_unique_paths(&self) -> usize {
+        let mut paths = HashSet::new();
+
+        for y in 0..self.map.height() {
+            for x in 0..self.map.width() {
+                match self.map.get(x, y) {
+                    Some(Tile::Height(0)) => {}
+                    _ => continue,
+                }
+
+                let mut queue = vec![vec![(x, y)]];
+
+                while let Some(path) = queue.pop() {
+                    let (x, y) = path.last().unwrap().clone();
+
+                    match self.map.get(x, y) {
+                        Some(Tile::Height(h)) if h == 9 => {
+                            paths.insert(path.clone());
+                        }
+                        _ => {}
+                    }
+
+                    let Some(next) = self.edges.get(&(x, y)) else {
+                        continue;
+                    };
+
+                    for (nx, ny) in next {
+                        let mut new_path = path.clone();
+                        new_path.push((*nx, *ny));
+                        queue.push(new_path);
+                    }
+                }
+            }
+        }
+
+        paths.len()
+    }
+
     fn get_reachable_positions_with_height(
         &self,
         x: usize,
@@ -188,11 +226,15 @@ fn main() -> Result<()> {
 
     let map = Map::parse(&input);
     let graph = Graph::new(map);
-    let trailheads = graph.find_all_trailheads();
 
+    let trailheads = graph.find_all_trailheads();
     let result: usize = trailheads.values().map(|x| x.len()).sum();
 
     println!("Result (Part 1): {result}");
+
+    let unique_path_count = graph.find_unique_paths();
+
+    println!("Result (Part 2): {unique_path_count}");
 
     Ok(())
 }
@@ -304,5 +346,100 @@ mod tests {
         let result: usize = trailheads.values().map(|x| x.len()).sum();
 
         assert_eq!(result, 36);
+    }
+
+    #[test]
+    fn find_all_unique_paths_first() {
+        let input = r#"
+...0...
+...1...
+...2...
+6543456
+7.....7
+8.....8
+9.....9
+        "#;
+
+        let map = Map::parse(&input);
+        let graph = Graph::new(map);
+        let unique_paths = graph.find_unique_paths();
+
+        assert_eq!(unique_paths, 2);
+    }
+
+    #[test]
+    fn find_all_unique_paths_second() {
+        let input = r#"
+.....0.
+..4321.
+..5..2.
+..6543.
+..7..4.
+..8765.
+..9....
+        "#;
+
+        let map = Map::parse(&input);
+        let graph = Graph::new(map);
+        let unique_paths = graph.find_unique_paths();
+
+        assert_eq!(unique_paths, 3);
+    }
+
+    #[test]
+    fn find_all_unique_paths_third() {
+        let input = r#"
+..90..9
+...1.98
+...2..7
+6543456
+765.987
+876....
+987....
+        "#;
+
+        let map = Map::parse(&input);
+        let graph = Graph::new(map);
+        let unique_paths = graph.find_unique_paths();
+
+        assert_eq!(unique_paths, 13);
+    }
+
+    #[test]
+    fn find_all_unique_paths_fourth() {
+        let input = r#"
+012345
+123456
+234567
+345678
+4.6789
+56789.
+        "#;
+
+        let map = Map::parse(&input);
+        let graph = Graph::new(map);
+        let unique_paths = graph.find_unique_paths();
+
+        assert_eq!(unique_paths, 227);
+    }
+
+    #[test]
+    fn find_all_unique_paths_fifth() {
+        let input = r#"
+89010123
+78121874
+87430965
+96549874
+45678903
+32019012
+01329801
+10456732
+        "#;
+
+        let map = Map::parse(&input);
+        let graph = Graph::new(map);
+        let unique_paths = graph.find_unique_paths();
+
+        assert_eq!(unique_paths, 81);
     }
 }
