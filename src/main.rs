@@ -12,7 +12,7 @@ fn parts_after_steps(stone: usize, steps: usize) -> usize {
         return parts_after_steps(1, steps - 1);
     }
 
-    let string = format!("{}", stone);
+    let string = format!("{stone}");
     if string.len() % 2 == 0 {
         let middle = string.len() / 2;
         let iter = string.chars();
@@ -23,14 +23,14 @@ fn parts_after_steps(stone: usize, steps: usize) -> usize {
             + parts_after_steps(b.parse().unwrap(), steps - 1);
     }
 
-    return parts_after_steps(stone * 2024, steps - 1);
+    parts_after_steps(stone * 2024, steps - 1)
 }
 
 fn arr_parts_after_steps(stones: &[usize], steps: usize) -> usize {
-    return stones
+    stones
         .iter()
         .map(|stone| parts_after_steps(*stone, steps))
-        .sum();
+        .sum()
 }
 
 fn main() {
