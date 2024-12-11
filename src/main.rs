@@ -1,29 +1,39 @@
+use rayon::prelude::*;
 use std::fs;
 
-fn step(stones: &[usize]) -> Vec<usize> {
-    let mut result = vec![];
+fn concat(vec: &[char]) -> usize {
+    vec.iter()
+        .map(|x| x.to_digit(10).unwrap())
+        .fold(0, |acc, elem| acc * 10 + elem as usize)
+}
 
-    for stone in stones {
-        if stone == &0 {
-            result.push(1);
-            continue;
-        }
-
-        let string = format!("{}", stone);
-        if string.len() % 2 == 0 {
-            let middle = string.len() / 2;
-            let iter = string.chars();
-            let a = iter.clone().take(middle).collect::<String>();
-            let b = iter.skip(middle).collect::<String>();
-            result.push(a.parse().unwrap());
-            result.push(b.parse().unwrap());
-            continue;
-        }
-
-        result.push(stone * 2024);
+fn evolve_stone(stone: usize) -> Vec<usize> {
+    if stone == 0 {
+        return vec![1];
     }
 
-    result
+    let string = stone.to_string();
+    if string.len() % 2 == 0 {
+        let middle = string.len() / 2;
+        let iter: Vec<char> = string.chars().collect();
+
+        let a = concat(&iter[..middle]);
+        let b = concat(&iter[middle..]);
+
+        return vec![a, b];
+    }
+
+    return vec![stone * 2024];
+}
+
+fn step(stones: &[usize]) -> Vec<usize> {
+    stones
+        .par_iter()
+        .flat_map(|stone| {
+            let evolved = evolve_stone(*stone);
+            evolved
+        })
+        .collect::<Vec<usize>>()
 }
 
 fn main() {
@@ -37,7 +47,8 @@ fn main() {
 
     let mut evolved = stones.clone();
 
-    for _ in 0..25 {
+    for e in 0..25 {
+        dbg!("Step", e + 1);
         let new_stones = step(&evolved);
         evolved = new_stones;
     }
@@ -45,6 +56,19 @@ fn main() {
     let result = evolved.len();
 
     println!("Result (Part 1): {result}");
+
+    let mut evolved = stones.clone();
+
+    for e in 0..75 {
+        dbg!("Step", e + 1);
+        dbg!("Length", evolved.len());
+        let new_stones = step(&evolved);
+        evolved = new_stones;
+    }
+
+    let result = evolved.len();
+
+    println!("Result (Part 2): {result}");
 }
 
 #[cfg(test)]
