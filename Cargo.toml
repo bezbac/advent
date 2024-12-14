@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.93"
 memoize = "0.4.2"
+pathfinding = "4.12.0"
