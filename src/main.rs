@@ -1,6 +1,8 @@
-use std::fs;
+use std::{collections::HashMap, fs};
 
-#[derive(Debug, PartialEq)]
+use itertools::Itertools;
+
+#[derive(Debug, PartialEq, Clone, Copy)]
 struct Robot {
     x: usize,
     y: usize,
@@ -50,6 +52,7 @@ impl Robot {
     }
 }
 
+#[derive(Debug, Clone)]
 struct World {
     width: usize,
     height: usize,
@@ -90,6 +93,34 @@ impl World {
 
         q1 * q2 * q3 * q4
     }
+
+    fn robots_at(&self, x: usize, y: usize) -> usize {
+        self.robots
+            .iter()
+            .filter(|robot| robot.x == x && robot.y == y)
+            .count()
+    }
+
+    fn print(&self) {
+        let filled = self
+            .robots
+            .iter()
+            .chunk_by(|robot| (robot.x, robot.y))
+            .into_iter()
+            .map(|((x, y), chunk)| ((x, y), chunk.count()))
+            .collect::<HashMap<(usize, usize), usize>>();
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if let Some(count) = filled.get(&(x, y)) {
+                    print!("■");
+                } else {
+                    print!(" ");
+                }
+            }
+            println!();
+        }
+    }
 }
 
 fn main() {
@@ -100,19 +131,39 @@ fn main() {
 
     let robots = input.lines().map(Robot::parse).collect::<Vec<_>>();
 
-    let mut world = World {
+    let world = World {
         width: world_width,
         height: world_height,
         robots,
     };
 
+    let mut w_part_1 = world.clone();
+
     for _ in 0..100 {
-        world.step();
+        w_part_1.step();
     }
 
-    let result = world.safety_factor();
+    let result = w_part_1.safety_factor();
 
     println!("Result (Part 1): {result}");
+
+    let mut w_part_2 = world.clone();
+
+    // I did not code an automatic way to get the result for part 2, just looked at the output
+
+    for i in 1..1000000000 {
+        w_part_2.step();
+
+        // I noticed this pattern after looking at the output for a while
+        if i % 101 != 2 {
+            continue;
+        }
+
+        println!("-------------------");
+        println!("Step {i}");
+        println!("");
+        w_part_2.print();
+    }
 }
 
 #[cfg(test)]
