@@ -49,6 +49,7 @@ fn find_unvisited(
 struct Area {
     area: usize,
     perimiter: usize,
+    sides: usize,
     tiles: HashSet<(usize, usize)>,
 }
 
@@ -63,6 +64,7 @@ fn get_areas(input: &Map) -> Vec<Area> {
     let mut current_area = Area {
         area: 0,
         perimiter: 0,
+        sides: 0,
         tiles: HashSet::new(),
     };
 
@@ -80,6 +82,11 @@ fn get_areas(input: &Map) -> Vec<Area> {
             let c = input.get_tile(x, y);
 
             visited.insert((x, y));
+
+            if current_area.tiles.len() == 0 {
+                current_area.sides = 4;
+            }
+
             current_area.tiles.insert((x, y));
             current_area.area += 1;
 
@@ -118,12 +125,41 @@ fn get_areas(input: &Map) -> Vec<Area> {
             } else if !visited.contains(&(x, y + 1)) {
                 stack.push((x, y + 1))
             }
+
+            // If there is a diagonal but one of the sides is empty
+            let diagonal_coordinates: Vec<(isize, isize)> = [
+                (x as isize - 1, y as isize - 1),
+                (x as isize + 1, y as isize - 1),
+                (x as isize - 1, y as isize + 1),
+                (x as isize + 1, y as isize + 1),
+            ]
+            .iter()
+            .filter(|(x, y)| {
+                if (x < &0) || (y < &0) {
+                    return false;
+                }
+
+                if (*x > input.width() as isize) || (*y < input.height() as isize) {
+                    return false;
+                }
+
+                true
+            })
+            .cloned()
+            .collect();
+
+            if diagonal_coordinates
+                .iter()
+                .any(|coordinate| input.get_tile(coordinate.0 as usize, coordinate.1 as usize) == c)
+            {
+            }
         }
 
         result.push(current_area);
         current_area = Area {
             area: 0,
             perimiter: 0,
+            sides: 0,
             tiles: HashSet::new(),
         };
 
@@ -153,6 +189,183 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_get_area_and_perimiter_line_vertical_2() {
+        let input = r#"
+A
+A
+        "#;
+
+        let map = Map::parse(input);
+
+        let areas = get_areas(&map);
+
+        assert_eq!(areas.len(), 1);
+        assert_eq!(areas[0].area, 2);
+        assert_eq!(areas[0].perimiter, 6);
+        assert_eq!(areas[0].sides, 4);
+    }
+
+    #[test]
+    fn test_get_area_and_perimiter_line_vertical_3() {
+        let input = r#"
+A
+A
+A
+        "#;
+
+        let map = Map::parse(input);
+
+        let areas = get_areas(&map);
+
+        assert_eq!(areas.len(), 1);
+        assert_eq!(areas[0].area, 3);
+        assert_eq!(areas[0].perimiter, 8);
+        assert_eq!(areas[0].sides, 4);
+    }
+
+    #[test]
+    fn test_get_area_and_perimiter_line_horizontal_2() {
+        let input = r#"
+AA
+        "#;
+
+        let map = Map::parse(input);
+
+        let areas = get_areas(&map);
+
+        assert_eq!(areas.len(), 1);
+        assert_eq!(areas[0].area, 2);
+        assert_eq!(areas[0].perimiter, 6);
+        assert_eq!(areas[0].sides, 4);
+    }
+
+    #[test]
+    fn test_get_area_and_perimiter_line_horizontal_3() {
+        let input = r#"
+AAA
+        "#;
+
+        let map = Map::parse(input);
+
+        let areas = get_areas(&map);
+
+        assert_eq!(areas.len(), 1);
+        assert_eq!(areas[0].area, 3);
+        assert_eq!(areas[0].perimiter, 6);
+        assert_eq!(areas[0].sides, 4);
+    }
+
+    #[test]
+    fn test_get_area_and_perimiter_triangle_2() {
+        let input = r#"
+AA
+A.
+        "#;
+
+        let map = Map::parse(input);
+
+        let areas = get_areas(&map);
+
+        let area_a = areas
+            .iter()
+            .find(|area| area.tiles.contains(&(0, 0)))
+            .unwrap();
+
+        assert_eq!(area_a.area, 3);
+        assert_eq!(area_a.perimiter, 8);
+        assert_eq!(area_a.sides, 6);
+    }
+
+    #[test]
+    fn test_get_area_and_perimiter_triangle_3() {
+        let input = r#"
+AAA
+A..
+A..
+        "#;
+
+        let map = Map::parse(input);
+
+        let areas = get_areas(&map);
+
+        let area_a = areas
+            .iter()
+            .find(|area| area.tiles.contains(&(0, 0)))
+            .unwrap();
+
+        assert_eq!(area_a.area, 5);
+        assert_eq!(area_a.perimiter, 12);
+        assert_eq!(area_a.sides, 6);
+    }
+
+    #[test]
+    fn test_get_area_and_perimiter_triangle_4() {
+        let input = r#"
+AAAA
+A...
+A...
+A...
+        "#;
+
+        let map = Map::parse(input);
+
+        let areas = get_areas(&map);
+
+        let area_a = areas
+            .iter()
+            .find(|area| area.tiles.contains(&(0, 0)))
+            .unwrap();
+
+        assert_eq!(area_a.area, 7);
+        assert_eq!(area_a.perimiter, 16);
+        assert_eq!(area_a.sides, 6);
+    }
+
+    #[test]
+    fn test_get_area_and_perimiter_tetris() {
+        let input = r#"
+.A
+AA
+A.
+        "#;
+
+        let map = Map::parse(input);
+
+        let areas = get_areas(&map);
+
+        let area_a = areas
+            .iter()
+            .find(|area| area.tiles.contains(&(1, 0)))
+            .unwrap();
+
+        assert_eq!(area_a.area, 4);
+        assert_eq!(area_a.perimiter, 10);
+        assert_eq!(area_a.sides, 8);
+    }
+
+    #[test]
+    fn test_get_area_and_perimiter_w() {
+        let input = r#"
+.AA
+AA.
+A.. 
+        "#;
+
+        let map = Map::parse(input);
+
+        let areas = get_areas(&map);
+
+        let area_a = areas
+            .iter()
+            .find(|area| area.tiles.contains(&(1, 0)))
+            .unwrap();
+
+        assert_eq!(area_a.area, 5);
+        assert_eq!(area_a.perimiter, 12);
+        assert_eq!(area_a.sides, 10);
+    }
 
     #[test]
     fn test_get_area_and_perimiter_first() {
