@@ -1,159 +1,232 @@
 use std::fs;
 
-use pathfinding::prelude::astar;
-
-struct ClawGame {
-    target: (usize, usize),
-    move_a: (usize, usize),
-    move_b: (usize, usize),
+#[derive(Debug, PartialEq)]
+struct Robot {
+    x: usize,
+    y: usize,
+    vx: isize,
+    vy: isize,
 }
 
-impl ClawGame {
-    fn min_token_cost(&self) -> Option<usize> {
-        let result = astar(
-            &(0, 0),
-            |&(x, y)| {
-                if x > self.target.0 || y > self.target.1 {
-                    return vec![];
-                }
+impl Robot {
+    fn step(&mut self, world_width: usize, world_height: usize) {
+        let x = self.x as isize + self.vx;
+        let y = self.y as isize + self.vy;
 
-                vec![
-                    ((x + self.move_a.0, y + self.move_a.1), 3),
-                    ((x + self.move_b.0, y + self.move_b.1), 1),
-                ]
-            },
-            |&(x, y)| {
-                ((self.target.0 as isize - x as isize).abs() as usize / self.move_a.0) * 3
-                    + ((self.target.1 as isize - y as isize).abs() as usize / self.move_a.1) * 3
-            },
-            |p| p.0 == self.target.0 && p.1 == self.target.1,
-        );
+        let x = if x < 0 {
+            (world_width as isize + x) as usize
+        } else if x >= world_width as isize {
+            x as usize - world_width
+        } else {
+            x as usize
+        };
 
-        result.map(|(_, cost)| cost)
+        let y = if y < 0 {
+            (world_height as isize + y) as usize
+        } else if y >= world_height as isize {
+            y as usize - world_height
+        } else {
+            y as usize
+        };
+
+        self.x = x;
+        self.y = y;
     }
 
-    fn parse(input: &str) -> Self {
-        let mut lines = input.trim().lines();
+    fn parse(input: &str) -> Robot {
+        let input = input.trim();
+        let input = input.replace("p=", "");
+        let input = input.replace("v=", "");
+        let input = input.replace(" ", ",");
 
-        let move_a = {
-            let line = lines.next().unwrap();
-            let line = line.trim_start_matches("Button A: ");
-            let line = line.replace("X+", "");
-            let line = line.replace("Y+", "");
+        let mut parts = input.split(",").into_iter();
 
-            let mut move_a = line.split(", ").into_iter();
+        let x = parts.next().unwrap().parse().unwrap();
+        let y = parts.next().unwrap().parse().unwrap();
+        let vx = parts.next().unwrap().parse().unwrap();
+        let vy = parts.next().unwrap().parse().unwrap();
 
-            (
-                move_a.next().unwrap().parse().unwrap(),
-                move_a.next().unwrap().parse().unwrap(),
-            )
-        };
+        Self { x, y, vx, vy }
+    }
+}
 
-        let move_b = {
-            let line = lines.next().unwrap();
-            let line = line.trim_start_matches("Button B: ");
-            let line = line.replace("X+", "");
-            let line = line.replace("Y+", "");
+struct World {
+    width: usize,
+    height: usize,
+    robots: Vec<Robot>,
+}
 
-            let mut move_a = line.split(", ").into_iter();
-
-            (
-                move_a.next().unwrap().parse().unwrap(),
-                move_a.next().unwrap().parse().unwrap(),
-            )
-        };
-
-        let target = {
-            let line = lines.next().unwrap();
-            let line = line.trim_start_matches("Prize: ");
-            let line = line.replace("X=", "");
-            let line = line.replace("Y=", "");
-
-            let mut target = line.split(", ").into_iter();
-
-            (
-                target.next().unwrap().parse().unwrap(),
-                target.next().unwrap().parse().unwrap(),
-            )
-        };
-
-        Self {
-            target,
-            move_a,
-            move_b,
+impl World {
+    fn step(&mut self) {
+        for robot in &mut self.robots {
+            robot.step(self.width, self.height);
         }
+    }
+
+    fn safety_factor(&self) -> usize {
+        let q1 = self
+            .robots
+            .iter()
+            .filter(|robot| (robot.x < self.width / 2 && robot.y < self.height / 2))
+            .count();
+
+        let q2 = self
+            .robots
+            .iter()
+            .filter(|robot| (robot.x > self.width / 2 && robot.y < self.height / 2))
+            .count();
+
+        let q3 = self
+            .robots
+            .iter()
+            .filter(|robot| (robot.x < self.width / 2 && robot.y > self.height / 2))
+            .count();
+
+        let q4 = self
+            .robots
+            .iter()
+            .filter(|robot| (robot.x > self.width / 2 && robot.y > self.height / 2))
+            .count();
+
+        q1 * q2 * q3 * q4
     }
 }
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day13.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day14.txt").expect("Failed to read file");
 
-    let mut result = 0;
+    let world_width = 101;
+    let world_height = 103;
 
-    for game_input in input.trim().split("\n\n") {
-        let game = ClawGame::parse(game_input.trim());
+    let robots = input.lines().map(Robot::parse).collect::<Vec<_>>();
 
-        if let Some(cost) = game.min_token_cost() {
-            result += cost;
-        }
+    let mut world = World {
+        width: world_width,
+        height: world_height,
+        robots,
+    };
+
+    for _ in 0..100 {
+        world.step();
     }
+
+    let result = world.safety_factor();
 
     println!("Result (Part 1): {result}");
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::ClawGame;
+    use super::*;
 
     #[test]
-    fn test_game_1() {
-        let input = r#"
-Button A: X+94, Y+34
-Button B: X+22, Y+67
-Prize: X=8400, Y=5400
-        "#;
-
-        let game = ClawGame::parse(input);
-
-        assert_eq!(game.min_token_cost(), Some(280));
+    fn test_parse() {
+        assert_eq!(
+            Robot::parse("p=2,4 v=2,-3"),
+            Robot {
+                x: 2,
+                y: 4,
+                vx: 2,
+                vy: -3
+            }
+        );
     }
 
     #[test]
-    fn test_game_2() {
-        let input = r#"
-Button A: X+26, Y+66
-Button B: X+67, Y+21
-Prize: X=12748, Y=12176
-        "#;
+    fn test_step() {
+        let mut robot = Robot::parse("p=2,4 v=2,-3");
 
-        let game = ClawGame::parse(input);
+        robot.step(11, 7);
 
-        assert_eq!(game.min_token_cost(), None);
+        assert_eq!(
+            robot,
+            Robot {
+                x: 4,
+                y: 1,
+                vx: 2,
+                vy: -3
+            }
+        );
+
+        robot.step(11, 7);
+
+        assert_eq!(
+            robot,
+            Robot {
+                x: 6,
+                y: 5,
+                vx: 2,
+                vy: -3
+            }
+        );
+
+        robot.step(11, 7);
+
+        assert_eq!(
+            robot,
+            Robot {
+                x: 8,
+                y: 2,
+                vx: 2,
+                vy: -3
+            }
+        );
+
+        robot.step(11, 7);
+
+        assert_eq!(
+            robot,
+            Robot {
+                x: 10,
+                y: 6,
+                vx: 2,
+                vy: -3
+            }
+        );
+
+        robot.step(11, 7);
+
+        assert_eq!(
+            robot,
+            Robot {
+                x: 1,
+                y: 3,
+                vx: 2,
+                vy: -3
+            }
+        );
     }
 
     #[test]
-    fn test_game_3() {
-        let input = r#"
-Button A: X+17, Y+86
-Button B: X+84, Y+37
-Prize: X=7870, Y=6450
-        "#;
+    fn test_safety_factor() {
+        let mut w = World {
+            width: 11,
+            height: 7,
+            robots: [
+                (6, 0),
+                (6, 0),
+                (9, 0),
+                (0, 2),
+                (1, 3),
+                (2, 3),
+                (5, 4),
+                (3, 5),
+                (4, 5),
+                (4, 5),
+                (1, 6),
+                (6, 6),
+            ]
+            .iter()
+            .map(|(x, y)| Robot {
+                x: *x,
+                y: *y,
+                vx: 0,
+                vy: 0,
+            })
+            .collect(),
+        };
 
-        let game = ClawGame::parse(input);
-
-        assert_eq!(game.min_token_cost(), Some(200));
-    }
-
-    #[test]
-    fn test_game_4() {
-        let input = r#"
-Button A: X+69, Y+23
-Button B: X+27, Y+71
-Prize: X=18641, Y=10279
-        "#;
-
-        let game = ClawGame::parse(input);
-
-        assert_eq!(game.min_token_cost(), None);
+        assert_eq!(w.safety_factor(), 12);
+        assert_eq!(w.safety_factor(), 12);
     }
 }
