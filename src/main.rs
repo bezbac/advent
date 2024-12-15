@@ -1,169 +1,221 @@
-use std::{collections::HashMap, fs};
+use std::{collections::VecDeque, fs};
 
-use itertools::Itertools;
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-struct Robot {
-    x: usize,
-    y: usize,
-    vx: isize,
-    vy: isize,
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Object {
+    Wall,
+    Box,
 }
 
-impl Robot {
-    fn step(&mut self, world_width: usize, world_height: usize) {
-        let x = self.x as isize + self.vx;
-        let y = self.y as isize + self.vy;
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Move {
+    Up,
+    Down,
+    Left,
+    Right,
+}
 
-        let x = if x < 0 {
-            (world_width as isize + x) as usize
-        } else if x >= world_width as isize {
-            x as usize - world_width
-        } else {
-            x as usize
-        };
+impl TryFrom<char> for Move {
+    type Error = ();
 
-        let y = if y < 0 {
-            (world_height as isize + y) as usize
-        } else if y >= world_height as isize {
-            y as usize - world_height
-        } else {
-            y as usize
-        };
-
-        self.x = x;
-        self.y = y;
-    }
-
-    fn parse(input: &str) -> Robot {
-        let input = input.trim();
-        let input = input.replace("p=", "");
-        let input = input.replace("v=", "");
-        let input = input.replace(" ", ",");
-
-        let mut parts = input.split(",").into_iter();
-
-        let x = parts.next().unwrap().parse().unwrap();
-        let y = parts.next().unwrap().parse().unwrap();
-        let vx = parts.next().unwrap().parse().unwrap();
-        let vy = parts.next().unwrap().parse().unwrap();
-
-        Self { x, y, vx, vy }
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        Ok(match value {
+            '^' => Move::Up,
+            'v' => Move::Down,
+            '<' => Move::Left,
+            '>' => Move::Right,
+            _ => return Err(()),
+        })
     }
 }
 
-#[derive(Debug, Clone)]
-struct World {
-    width: usize,
-    height: usize,
-    robots: Vec<Robot>,
+#[derive(Debug)]
+struct Game {
+    tiles: Vec<Vec<Option<Object>>>,
+    robot: (usize, usize),
+    instructions: VecDeque<Move>,
 }
 
-impl World {
-    fn step(&mut self) {
-        for robot in &mut self.robots {
-            robot.step(self.width, self.height);
-        }
-    }
-
-    fn safety_factor(&self) -> usize {
-        let q1 = self
-            .robots
-            .iter()
-            .filter(|robot| (robot.x < self.width / 2 && robot.y < self.height / 2))
-            .count();
-
-        let q2 = self
-            .robots
-            .iter()
-            .filter(|robot| (robot.x > self.width / 2 && robot.y < self.height / 2))
-            .count();
-
-        let q3 = self
-            .robots
-            .iter()
-            .filter(|robot| (robot.x < self.width / 2 && robot.y > self.height / 2))
-            .count();
-
-        let q4 = self
-            .robots
-            .iter()
-            .filter(|robot| (robot.x > self.width / 2 && robot.y > self.height / 2))
-            .count();
-
-        q1 * q2 * q3 * q4
-    }
-
-    fn robots_at(&self, x: usize, y: usize) -> usize {
-        self.robots
-            .iter()
-            .filter(|robot| robot.x == x && robot.y == y)
-            .count()
-    }
-
+impl Game {
     fn print(&self) {
-        let filled = self
-            .robots
-            .iter()
-            .chunk_by(|robot| (robot.x, robot.y))
-            .into_iter()
-            .map(|((x, y), chunk)| ((x, y), chunk.count()))
-            .collect::<HashMap<(usize, usize), usize>>();
-
-        for y in 0..self.height {
-            for x in 0..self.width {
-                if let Some(count) = filled.get(&(x, y)) {
-                    print!("■");
-                } else {
-                    print!(" ");
+        for y in 0..self.height() {
+            for x in 0..self.width() {
+                match self.tiles[y][x] {
+                    None => print!("."),
+                    Some(Object::Box) => print!("O"),
+                    Some(Object::Wall) => print!("#"),
                 }
             }
             println!();
         }
     }
+
+    fn width(&self) -> usize {
+        self.tiles.first().unwrap().len()
+    }
+
+    fn height(&self) -> usize {
+        self.tiles.len()
+    }
+
+    fn get_tile(&self, x: usize, y: usize) -> Option<Object> {
+        let row = self.tiles.get(y)?;
+        let tile = row.get(x)?;
+        *tile
+    }
+
+    fn set_tile(&mut self, x: usize, y: usize, value: Option<Object>) {
+        self.tiles[y][x] = value;
+    }
+
+    fn swap_tiles(&mut self, a: (usize, usize), b: (usize, usize)) {
+        let remember = self.get_tile(a.0, a.1);
+        self.set_tile(a.0, a.1, self.get_tile(b.0, b.1));
+        self.set_tile(b.0, b.1, remember);
+    }
+
+    fn parse(input: &str) -> Game {
+        let input = input.trim();
+
+        let mut split = input.split("\n\n").into_iter();
+        let tile_input = split.next().unwrap();
+        let instructions_input = split.next().unwrap();
+
+        let mut tiles: Vec<Vec<Option<Object>>> = Vec::new();
+        let mut robot = (0, 0);
+        let mut instructions: VecDeque<Move> = VecDeque::new();
+
+        for (y, line) in tile_input.lines().enumerate() {
+            let mut row: Vec<Option<Object>> = Vec::new();
+
+            for (x, c) in line.chars().enumerate() {
+                match c {
+                    '#' => row.push(Some(Object::Wall)),
+                    'O' => row.push(Some(Object::Box)),
+                    '@' => {
+                        row.push(None);
+                        robot = (x, y);
+                    }
+                    '.' => row.push(None),
+                    _ => panic!("Unknown character: {}", c),
+                }
+            }
+
+            tiles.push(row);
+        }
+
+        for c in instructions_input.chars() {
+            if let Ok(instruction) = Move::try_from(c) {
+                instructions.push_back(instruction);
+            } else {
+                panic!("Unknown instruction: {}", c);
+            }
+        }
+
+        Game {
+            tiles,
+            robot,
+            instructions,
+        }
+    }
+
+    fn shift_left(&mut self, pos: (usize, usize), n: usize) {
+        for i in 1..=n {
+            self.swap_tiles(pos, (pos.0 - i, pos.1));
+        }
+    }
+
+    fn shift_right(&mut self, pos: (usize, usize), n: usize) {
+        for i in 1..=n {
+            self.swap_tiles((pos.0 + i, pos.1), (pos.0 + i + 1, pos.1));
+        }
+    }
+
+    fn shift_up(&mut self, pos: (usize, usize), n: usize) {
+        for i in 1..=n {
+            self.swap_tiles(pos, (pos.0, pos.1 - i));
+        }
+    }
+
+    fn shift_down(&mut self, pos: (usize, usize), n: usize) {
+        for i in 1..=n {
+            self.swap_tiles(pos, (pos.0, pos.1 + i));
+        }
+    }
+
+    fn step(&mut self) {
+        let mv = self.instructions.pop_front();
+
+        let Some(mv) = mv else { return };
+
+        match mv {
+            Move::Up => {
+                let mut empty_y = None;
+                let mut y = self.robot.1 - 1;
+                while y > 0 {
+                    if self.get_tile(self.robot.0, y).is_none() {
+                        empty_y = Some(y);
+                    }
+                    y -= 1;
+                }
+
+                let Some(empty_y) = empty_y else {
+                    return;
+                };
+
+                self.shift_up(self.robot, empty_y.abs_diff(self.robot.0));
+                self.robot = (self.robot.0, self.robot.1 - 1);
+            }
+            Move::Down => todo!(),
+            Move::Left => {
+                let empty_x = self.tiles[self.robot.1][0..self.robot.0]
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find(|(_, tile)| tile.is_none())
+                    .map(|(x, _)| x);
+
+                let Some(empty_x) = empty_x else {
+                    return;
+                };
+
+                self.shift_left(self.robot, empty_x.abs_diff(self.robot.0));
+                self.robot = (self.robot.0 - 1, self.robot.1);
+            }
+            Move::Right => {
+                let empty_x = self.tiles[self.robot.1][self.robot.0 + 1..self.width()]
+                    .iter()
+                    .enumerate()
+                    .find(|(_, tile)| tile.is_none())
+                    .map(|(x, _)| x);
+
+                let Some(empty_x) = empty_x else {
+                    return;
+                };
+
+                let empty_x = empty_x + self.robot.0;
+
+                dbg!(empty_x);
+                dbg!(self.robot.1);
+
+                self.shift_right(self.robot, empty_x.abs_diff(self.robot.0));
+                self.robot = (self.robot.0 + 1, self.robot.1);
+            }
+        }
+    }
+
+    fn run(&mut self) {
+        while self.instructions.len() > 0 {
+            self.step();
+        }
+    }
 }
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day14.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day15.txt").expect("Failed to read file");
 
-    let world_width = 101;
-    let world_height = 103;
-
-    let robots = input.lines().map(Robot::parse).collect::<Vec<_>>();
-
-    let world = World {
-        width: world_width,
-        height: world_height,
-        robots,
-    };
-
-    let mut w_part_1 = world.clone();
-
-    for _ in 0..100 {
-        w_part_1.step();
-    }
-
-    let result = w_part_1.safety_factor();
+    let result = 0;
 
     println!("Result (Part 1): {result}");
-
-    let mut w_part_2 = world.clone();
-
-    // I did not code an automatic way to get the result for part 2, just looked at the output
-
-    for i in 1..1000000000 {
-        w_part_2.step();
-
-        // I noticed this pattern after looking at the output for a while
-        if i % 101 != 2 {
-            continue;
-        }
-
-        println!("-------------------");
-        println!("Step {i}");
-        println!("");
-        w_part_2.print();
-    }
 }
 
 #[cfg(test)]
@@ -171,113 +223,187 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_shift_left() {
+        let input = r#"
+..O.O
+        "#;
+
+        let mut game = Game::parse(input);
+
+        assert_eq!(
+            game.tiles[0],
+            vec![None, None, Some(Object::Box), None, Some(Object::Box)]
+        );
+
+        game.shift_left((4, 0), 1);
+
+        assert_eq!(
+            game.tiles[0],
+            vec![None, None, Some(Object::Box), Some(Object::Box), None]
+        );
+
+        game.shift_left((3, 0), 2);
+
+        assert_eq!(
+            game.tiles[0],
+            vec![None, Some(Object::Box), Some(Object::Box), None, None]
+        );
+    }
+
+    #[test]
+    fn test_mv_left_unobstructed() {
+        let input = r#"
+..@
+
+<<
+        "#;
+
+        let mut game = Game::parse(input);
+
+        assert_eq!(game.robot, (2, 0));
+
+        game.run();
+
+        assert_eq!(game.robot, (0, 0));
+    }
+
+    #[test]
+    fn test_mv_right_unobstructed() {
+        let input = r#"
+@..
+
+>>
+        "#;
+
+        let mut game = Game::parse(input);
+
+        assert_eq!(game.robot, (0, 0));
+
+        game.run();
+
+        assert_eq!(game.robot, (2, 0));
+    }
+
+    #[test]
+    fn test_mv_left_obstructed() {
+        let input = r#"
+.O.O@
+
+<<<
+        "#;
+
+        let mut game = Game::parse(input);
+
+        assert_eq!(game.robot, (4, 0));
+
+        game.run();
+
+        assert_eq!(game.robot, (2, 0));
+
+        assert_eq!(game.tiles[0][0], Some(Object::Box));
+        assert_eq!(game.tiles[0][1], Some(Object::Box));
+        assert_eq!(game.tiles[0][2], None);
+        assert_eq!(game.tiles[0][3], None);
+        assert_eq!(game.tiles[0][4], None);
+    }
+
+    #[test]
+    fn test_mv_right_obstructed() {
+        let input = r#"
+@O.O.
+
+>>>
+        "#;
+
+        let mut game = Game::parse(input);
+
+        game.print();
+
+        assert_eq!(game.robot, (0, 0));
+
+        game.step();
+
+        game.print();
+
+        game.step();
+
+        game.print();
+
+        assert_eq!(game.robot, (2, 0));
+
+        assert_eq!(game.tiles[0][0], None);
+        assert_eq!(game.tiles[0][1], None);
+        assert_eq!(game.tiles[0][2], None);
+        assert_eq!(game.tiles[0][3], Some(Object::Box));
+        assert_eq!(game.tiles[0][4], Some(Object::Box));
+    }
+
+    #[test]
     fn test_parse() {
-        assert_eq!(
-            Robot::parse("p=2,4 v=2,-3"),
-            Robot {
-                x: 2,
-                y: 4,
-                vx: 2,
-                vy: -3
-            }
-        );
-    }
+        let input = r#"
+########
+#..O.O.#
+##@.O..#
+#...O..#
+#.#.O..#
+#...O..#
+#......#
+########
 
-    #[test]
-    fn test_step() {
-        let mut robot = Robot::parse("p=2,4 v=2,-3");
+<^^>>>vv<v>>v<<        
+        "#;
 
-        robot.step(11, 7);
+        let mut game = Game::parse(input);
 
-        assert_eq!(
-            robot,
-            Robot {
-                x: 4,
-                y: 1,
-                vx: 2,
-                vy: -3
-            }
-        );
+        assert_eq!(game.tiles.len(), 8);
+        assert_eq!(game.tiles.first().unwrap().len(), 8);
 
-        robot.step(11, 7);
+        assert_eq!(game.robot, (2, 2));
 
-        assert_eq!(
-            robot,
-            Robot {
-                x: 6,
-                y: 5,
-                vx: 2,
-                vy: -3
-            }
-        );
+        assert_eq!(game.instructions.len(), 15);
 
-        robot.step(11, 7);
+        assert_eq!(game.instructions[0], Move::Left);
+        assert_eq!(game.instructions[1], Move::Up);
+        assert_eq!(game.instructions[2], Move::Up);
+        assert_eq!(game.instructions[3], Move::Right);
+        assert_eq!(game.instructions[4], Move::Right);
+        assert_eq!(game.instructions[5], Move::Right);
+        assert_eq!(game.instructions[6], Move::Down);
+        assert_eq!(game.instructions[7], Move::Down);
+        assert_eq!(game.instructions[8], Move::Left);
+        assert_eq!(game.instructions[9], Move::Down);
+        assert_eq!(game.instructions[10], Move::Right);
 
-        assert_eq!(
-            robot,
-            Robot {
-                x: 8,
-                y: 2,
-                vx: 2,
-                vy: -3
-            }
-        );
+        game.step();
+        assert_eq!(game.instructions.len(), 14);
+        assert_eq!(game.robot, (2, 2));
 
-        robot.step(11, 7);
+        game.step();
+        assert_eq!(game.instructions.len(), 13);
+        assert_eq!(game.robot, (2, 1));
 
-        assert_eq!(
-            robot,
-            Robot {
-                x: 10,
-                y: 6,
-                vx: 2,
-                vy: -3
-            }
-        );
+        game.step();
+        assert_eq!(game.instructions.len(), 12);
+        assert_eq!(game.robot, (2, 1));
 
-        robot.step(11, 7);
+        game.step();
+        assert_eq!(game.instructions.len(), 11);
+        assert_eq!(game.robot, (3, 1));
 
-        assert_eq!(
-            robot,
-            Robot {
-                x: 1,
-                y: 3,
-                vx: 2,
-                vy: -3
-            }
-        );
-    }
+        game.step();
+        assert_eq!(game.instructions.len(), 10);
+        assert_eq!(game.robot, (4, 1));
 
-    #[test]
-    fn test_safety_factor() {
-        let mut w = World {
-            width: 11,
-            height: 7,
-            robots: [
-                (6, 0),
-                (6, 0),
-                (9, 0),
-                (0, 2),
-                (1, 3),
-                (2, 3),
-                (5, 4),
-                (3, 5),
-                (4, 5),
-                (4, 5),
-                (1, 6),
-                (6, 6),
-            ]
-            .iter()
-            .map(|(x, y)| Robot {
-                x: *x,
-                y: *y,
-                vx: 0,
-                vy: 0,
-            })
-            .collect(),
-        };
+        game.step();
+        assert_eq!(game.instructions.len(), 9);
+        assert_eq!(game.robot, (4, 1));
 
-        assert_eq!(w.safety_factor(), 12);
-        assert_eq!(w.safety_factor(), 12);
+        game.step();
+        assert_eq!(game.instructions.len(), 8);
+        assert_eq!(game.robot, (4, 2));
+
+        game.step();
+        assert_eq!(game.instructions.len(), 7);
+        assert_eq!(game.robot, (4, 3));
     }
 }
