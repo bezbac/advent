@@ -1,169 +1,227 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashSet, fs};
 
-use itertools::Itertools;
+use pathfinding::prelude::astar;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-struct Robot {
-    x: usize,
-    y: usize,
-    vx: isize,
-    vy: isize,
+#[derive(Debug)]
+enum Tile {
+    Empty,
+    Wall,
 }
 
-impl Robot {
-    fn step(&mut self, world_width: usize, world_height: usize) {
-        let x = self.x as isize + self.vx;
-        let y = self.y as isize + self.vy;
+#[derive(Debug)]
+struct Map {
+    tiles: Vec<Vec<Tile>>,
+    start: (usize, usize),
+    end: (usize, usize),
+}
 
-        let x = if x < 0 {
-            (world_width as isize + x) as usize
-        } else if x >= world_width as isize {
-            x as usize - world_width
-        } else {
-            x as usize
-        };
-
-        let y = if y < 0 {
-            (world_height as isize + y) as usize
-        } else if y >= world_height as isize {
-            y as usize - world_height
-        } else {
-            y as usize
-        };
-
-        self.x = x;
-        self.y = y;
+impl Map {
+    fn width(&self) -> usize {
+        self.tiles.first().unwrap().len()
     }
 
-    fn parse(input: &str) -> Robot {
+    fn height(&self) -> usize {
+        self.tiles.len()
+    }
+
+    fn parse(input: &str) -> Map {
         let input = input.trim();
-        let input = input.replace("p=", "");
-        let input = input.replace("v=", "");
-        let input = input.replace(" ", ",");
 
-        let mut parts = input.split(",").into_iter();
+        let mut tiles = Vec::new();
+        let mut start = None;
+        let mut end = None;
 
-        let x = parts.next().unwrap().parse().unwrap();
-        let y = parts.next().unwrap().parse().unwrap();
-        let vx = parts.next().unwrap().parse().unwrap();
-        let vy = parts.next().unwrap().parse().unwrap();
+        for (y, row) in input.lines().enumerate() {
+            let mut row_tiles = Vec::new();
 
-        Self { x, y, vx, vy }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct World {
-    width: usize,
-    height: usize,
-    robots: Vec<Robot>,
-}
-
-impl World {
-    fn step(&mut self) {
-        for robot in &mut self.robots {
-            robot.step(self.width, self.height);
-        }
-    }
-
-    fn safety_factor(&self) -> usize {
-        let q1 = self
-            .robots
-            .iter()
-            .filter(|robot| (robot.x < self.width / 2 && robot.y < self.height / 2))
-            .count();
-
-        let q2 = self
-            .robots
-            .iter()
-            .filter(|robot| (robot.x > self.width / 2 && robot.y < self.height / 2))
-            .count();
-
-        let q3 = self
-            .robots
-            .iter()
-            .filter(|robot| (robot.x < self.width / 2 && robot.y > self.height / 2))
-            .count();
-
-        let q4 = self
-            .robots
-            .iter()
-            .filter(|robot| (robot.x > self.width / 2 && robot.y > self.height / 2))
-            .count();
-
-        q1 * q2 * q3 * q4
-    }
-
-    fn robots_at(&self, x: usize, y: usize) -> usize {
-        self.robots
-            .iter()
-            .filter(|robot| robot.x == x && robot.y == y)
-            .count()
-    }
-
-    fn print(&self) {
-        let filled = self
-            .robots
-            .iter()
-            .chunk_by(|robot| (robot.x, robot.y))
-            .into_iter()
-            .map(|((x, y), chunk)| ((x, y), chunk.count()))
-            .collect::<HashMap<(usize, usize), usize>>();
-
-        for y in 0..self.height {
-            for x in 0..self.width {
-                if let Some(count) = filled.get(&(x, y)) {
-                    print!("■");
-                } else {
-                    print!(" ");
+            for (x, c) in row.chars().enumerate() {
+                match c {
+                    '#' => {
+                        row_tiles.push(Tile::Wall);
+                    }
+                    '.' => {
+                        row_tiles.push(Tile::Empty);
+                    }
+                    'S' => {
+                        row_tiles.push(Tile::Empty);
+                        start = Some((x, y));
+                    }
+                    'E' => {
+                        row_tiles.push(Tile::Empty);
+                        end = Some((x, y));
+                    }
+                    _ => panic!("Unexpected character"),
                 }
             }
-            println!();
+
+            tiles.push(row_tiles);
         }
+
+        let start = start.unwrap();
+        let end = end.unwrap();
+
+        Map { start, end, tiles }
+    }
+
+    fn print(&self, visited: Option<HashSet<(usize, usize)>>) {
+        let visited = visited.unwrap_or_default();
+
+        for (y, row) in self.tiles.iter().enumerate() {
+            for (x, tile) in row.iter().enumerate() {
+                if visited.contains(&(x, y)) {
+                    print!("x");
+                    continue;
+                }
+
+                match tile {
+                    Tile::Empty => print!("."),
+                    Tile::Wall => print!("#"),
+                }
+            }
+            print!("\n")
+        }
+
+        println!()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum Direction {
+    North,
+    South,
+    West,
+    East,
+}
+
+impl Direction {
+    fn rotate_clockwise(self) -> Self {
+        match self {
+            Direction::North => Direction::East,
+            Direction::South => Direction::West,
+            Direction::West => Direction::North,
+            Direction::East => Direction::South,
+        }
+    }
+
+    fn rotate_counterclockwise(self) -> Self {
+        match self {
+            Direction::East => Direction::North,
+            Direction::West => Direction::South,
+            Direction::North => Direction::West,
+            Direction::South => Direction::East,
+        }
+    }
+}
+
+struct Maze {
+    map: Map,
+    reindeer: (usize, usize, Direction),
+}
+
+impl Maze {
+    fn parse(input: &str) -> Self {
+        let map = Map::parse(input);
+
+        let reindeer = (map.start.0, map.start.1, Direction::East);
+
+        Self { map, reindeer }
+    }
+
+    fn next_positions(
+        &self,
+        current_position: (usize, usize, Direction),
+    ) -> Vec<(usize, usize, Direction, usize)> {
+        let forward_pos = match current_position.2 {
+            Direction::North => (current_position.0 as isize, current_position.1 as isize - 1),
+            Direction::South => (current_position.0 as isize, current_position.1 as isize + 1),
+            Direction::West => (current_position.0 as isize - 1, current_position.1 as isize),
+            Direction::East => (current_position.0 as isize + 1, current_position.1 as isize),
+        };
+
+        let rotated_current_position = vec![
+            (
+                current_position.0,
+                current_position.1,
+                current_position.2.rotate_clockwise(),
+                1000,
+            ),
+            (
+                current_position.0,
+                current_position.1,
+                current_position.2.rotate_counterclockwise(),
+                1000,
+            ),
+        ];
+
+        if forward_pos.0 < 0
+            || forward_pos.1 < 0
+            || forward_pos.0 > self.map.width() as isize
+            || forward_pos.1 > self.map.height() as isize
+        {
+            return rotated_current_position;
+        }
+
+        let forward_pos = (forward_pos.0 as usize, forward_pos.1 as usize);
+
+        let forward_tile = &self.map.tiles[forward_pos.1][forward_pos.0];
+
+        match forward_tile {
+            Tile::Empty => {
+                let mut result = vec![(forward_pos.0, forward_pos.1, current_position.2, 1)];
+                result.append(&mut rotated_current_position.clone());
+                result
+            }
+            Tile::Wall => rotated_current_position,
+        }
+    }
+
+    fn solve(&self) -> Option<usize> {
+        let mut visited = HashSet::new();
+
+        let result = astar(
+            &self.reindeer,
+            |&(x, y, direction)| {
+                let successors = self
+                    .next_positions((x, y, direction))
+                    .iter()
+                    .map(|(nx, ny, nd, cost)| ((*nx, *ny, *nd), *cost))
+                    .collect::<Vec<_>>();
+
+                visited.insert((x, y));
+
+                successors
+            },
+            |&(x, y, _)| {
+                let (ex, ey) = self.map.end;
+
+                (((ex as isize - x as isize).pow(2) + (ey as isize - y as isize).pow(2)) as f64)
+                    .sqrt() as usize
+            },
+            |(x, y, _)| (*x, *y) == self.map.end,
+        );
+
+        dbg!(&result);
+
+        let path = result.clone().map(|(path, cost)| {
+            path.iter()
+                .map(|(x, y, _)| (*x, *y))
+                .collect::<HashSet<(usize, usize)>>()
+        });
+
+        self.map.print(path);
+
+        result.map(|(_, cost)| cost as usize)
     }
 }
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day14.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day16.txt").expect("Failed to read file");
 
-    let world_width = 101;
-    let world_height = 103;
+    let maze = Maze::parse(&input);
 
-    let robots = input.lines().map(Robot::parse).collect::<Vec<_>>();
-
-    let world = World {
-        width: world_width,
-        height: world_height,
-        robots,
-    };
-
-    let mut w_part_1 = world.clone();
-
-    for _ in 0..100 {
-        w_part_1.step();
-    }
-
-    let result = w_part_1.safety_factor();
+    let result = maze.solve().unwrap();
 
     println!("Result (Part 1): {result}");
-
-    let mut w_part_2 = world.clone();
-
-    // I did not code an automatic way to get the result for part 2, just looked at the output
-
-    for i in 1..1000000000 {
-        w_part_2.step();
-
-        // I noticed this pattern after looking at the output for a while
-        if i % 101 != 2 {
-            continue;
-        }
-
-        println!("-------------------");
-        println!("Step {i}");
-        println!("");
-        w_part_2.print();
-    }
 }
 
 #[cfg(test)]
@@ -171,113 +229,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse() {
-        assert_eq!(
-            Robot::parse("p=2,4 v=2,-3"),
-            Robot {
-                x: 2,
-                y: 4,
-                vx: 2,
-                vy: -3
-            }
-        );
-    }
+    fn test_example() {
+        let input = r#"
+###############
+#.......#....E#
+#.#.###.#.###.#
+#.....#.#...#.#
+#.###.#####.#.#
+#.#.#.......#.#
+#.#.#####.###.#
+#...........#.#
+###.#.#####.#.#
+#...#.....#.#.#
+#.#.#.###.#.#.#
+#.....#...#.#.#
+#.###.#.#.#.#.#
+#S..#.....#...#
+###############
+        "#;
 
-    #[test]
-    fn test_step() {
-        let mut robot = Robot::parse("p=2,4 v=2,-3");
+        let maze = Maze::parse(input);
 
-        robot.step(11, 7);
-
-        assert_eq!(
-            robot,
-            Robot {
-                x: 4,
-                y: 1,
-                vx: 2,
-                vy: -3
-            }
-        );
-
-        robot.step(11, 7);
-
-        assert_eq!(
-            robot,
-            Robot {
-                x: 6,
-                y: 5,
-                vx: 2,
-                vy: -3
-            }
-        );
-
-        robot.step(11, 7);
-
-        assert_eq!(
-            robot,
-            Robot {
-                x: 8,
-                y: 2,
-                vx: 2,
-                vy: -3
-            }
-        );
-
-        robot.step(11, 7);
-
-        assert_eq!(
-            robot,
-            Robot {
-                x: 10,
-                y: 6,
-                vx: 2,
-                vy: -3
-            }
-        );
-
-        robot.step(11, 7);
-
-        assert_eq!(
-            robot,
-            Robot {
-                x: 1,
-                y: 3,
-                vx: 2,
-                vy: -3
-            }
-        );
-    }
-
-    #[test]
-    fn test_safety_factor() {
-        let mut w = World {
-            width: 11,
-            height: 7,
-            robots: [
-                (6, 0),
-                (6, 0),
-                (9, 0),
-                (0, 2),
-                (1, 3),
-                (2, 3),
-                (5, 4),
-                (3, 5),
-                (4, 5),
-                (4, 5),
-                (1, 6),
-                (6, 6),
-            ]
-            .iter()
-            .map(|(x, y)| Robot {
-                x: *x,
-                y: *y,
-                vx: 0,
-                vy: 0,
-            })
-            .collect(),
-        };
-
-        assert_eq!(w.safety_factor(), 12);
-        assert_eq!(w.safety_factor(), 12);
+        assert_eq!(maze.solve(), Some(7036));
     }
 }
