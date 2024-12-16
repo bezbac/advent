@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fs};
 
-use pathfinding::prelude::astar;
+use pathfinding::prelude::astar_bag_collect;
 
 #[derive(Debug)]
 enum Tile {
@@ -60,7 +60,7 @@ impl Map {
         let start = start.unwrap();
         let end = end.unwrap();
 
-        Map { start, end, tiles }
+        Map { tiles, start, end }
     }
 
     fn print(&self, visited: Option<HashSet<(usize, usize)>>) {
@@ -78,10 +78,10 @@ impl Map {
                     Tile::Wall => print!("#"),
                 }
             }
-            print!("\n")
+            println!();
         }
 
-        println!()
+        println!();
     }
 }
 
@@ -175,10 +175,10 @@ impl Maze {
         }
     }
 
-    fn solve(&self) -> Option<usize> {
+    fn find_shortest_paths(&self) -> Option<(Vec<Vec<(usize, usize, Direction)>>, usize)> {
         let mut visited = HashSet::new();
 
-        let result = astar(
+        let result = astar_bag_collect(
             &self.reindeer,
             |&(x, y, direction)| {
                 let successors = self
@@ -200,17 +200,7 @@ impl Maze {
             |(x, y, _)| (*x, *y) == self.map.end,
         );
 
-        dbg!(&result);
-
-        let path = result.clone().map(|(path, cost)| {
-            path.iter()
-                .map(|(x, y, _)| (*x, *y))
-                .collect::<HashSet<(usize, usize)>>()
-        });
-
-        self.map.print(path);
-
-        result.map(|(_, cost)| cost as usize)
+        result
     }
 }
 
@@ -219,9 +209,23 @@ fn main() {
 
     let maze = Maze::parse(&input);
 
-    let result = maze.solve().unwrap();
+    let (shortest_paths, cost) = maze.find_shortest_paths().unwrap();
 
-    println!("Result (Part 1): {result}");
+    println!("Result (Part 1): {cost}");
+
+    let common_tiles = shortest_paths
+        .into_iter()
+        .map(|tiles| {
+            tiles
+                .iter()
+                .map(|tile| (tile.0, tile.1))
+                .collect::<HashSet<(usize, usize)>>()
+        })
+        .reduce(|acc, e| acc.union(&e).copied().collect())
+        .unwrap()
+        .len();
+
+    println!("Result (Part 2): {common_tiles}");
 }
 
 #[cfg(test)]
@@ -250,6 +254,17 @@ mod tests {
 
         let maze = Maze::parse(input);
 
-        assert_eq!(maze.solve(), Some(7036));
+        let (shortest_paths, cost) = maze.find_shortest_paths().unwrap();
+
+        let path = shortest_paths
+            .first()
+            .unwrap()
+            .iter()
+            .map(|(x, y, _)| (*x, *y))
+            .collect::<HashSet<(usize, usize)>>();
+
+        maze.map.print(Some(path));
+
+        assert_eq!(cost, 7036);
     }
 }
