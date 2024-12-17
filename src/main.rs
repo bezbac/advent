@@ -1,231 +1,129 @@
-use std::{collections::HashSet, fs};
+use std::{collections::VecDeque, fs, ops::BitXor};
 
-use pathfinding::prelude::astar_bag_collect;
-
-#[derive(Debug)]
-enum Tile {
-    Empty,
-    Wall,
+enum Instruction {
+    Adv,
+    Bxl,
+    Bst,
+    Jnz,
+    Bxc,
+    Out,
+    Bdv,
+    Cdv,
 }
 
-#[derive(Debug)]
-struct Map {
-    tiles: Vec<Vec<Tile>>,
-    start: (usize, usize),
-    end: (usize, usize),
+impl TryFrom<u8> for Instruction {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Instruction::Adv,
+            1 => Instruction::Bxl,
+            2 => Instruction::Bst,
+            3 => Instruction::Jnz,
+            4 => Instruction::Bxc,
+            5 => Instruction::Out,
+            6 => Instruction::Bdv,
+            7 => Instruction::Cdv,
+            _ => return Err(()),
+        })
+    }
 }
 
-impl Map {
-    fn width(&self) -> usize {
-        self.tiles.first().unwrap().len()
-    }
+struct Computer {
+    register_a: usize,
+    register_b: usize,
+    register_c: usize,
+    program: VecDeque<u8>,
+    output: Vec<u8>,
+}
 
-    fn height(&self) -> usize {
-        self.tiles.len()
-    }
-
-    fn parse(input: &str) -> Map {
+impl Computer {
+    fn parse(input: &str) -> Self {
         let input = input.trim();
 
-        let mut tiles = Vec::new();
-        let mut start = None;
-        let mut end = None;
+        let mut lines = input.lines();
 
-        for (y, row) in input.lines().enumerate() {
-            let mut row_tiles = Vec::new();
+        let line = lines.next().unwrap();
 
-            for (x, c) in row.chars().enumerate() {
-                match c {
-                    '#' => {
-                        row_tiles.push(Tile::Wall);
+        let line = line.trim_start_matches("Register A: ");
+        let register_a = line.parse().unwrap();
+
+        let line = lines.next().unwrap();
+        let line = line.trim_start_matches("Register B: ");
+        let register_b = line.parse().unwrap();
+
+        let line = lines.next().unwrap();
+        let line = line.trim_start_matches("Register C: ");
+        let register_c = line.parse().unwrap();
+
+        lines.next();
+
+        let line = lines.next().unwrap();
+        let line = line.trim_start_matches("Program: ");
+
+        let program: VecDeque<_> = line.trim().split(',').map(|c| c.parse().unwrap()).collect();
+
+        Self {
+            register_a,
+            register_b,
+            register_c,
+            program,
+            output: Vec::new(),
+        }
+    }
+
+    fn execute(&mut self) {
+        let mut instruction_pointer = 0;
+
+        while instruction_pointer + 1 < self.program.len() {
+            let instruction = Instruction::try_from(self.program[instruction_pointer]).unwrap();
+
+            let literal_operand = self.program[instruction_pointer + 1];
+            let combo_operand = match literal_operand {
+                0..=3 => literal_operand as usize,
+                4 => self.register_a,
+                5 => self.register_b,
+                6 => self.register_c,
+                _ => panic!("Unexpected combo operand identifier {}", literal_operand),
+            };
+
+            match instruction {
+                Instruction::Adv => {
+                    self.register_a = self.register_a / (combo_operand.pow(2)) as usize
+                }
+                Instruction::Bxl => {
+                    self.register_b = self.register_b.bitxor(literal_operand as usize)
+                }
+                Instruction::Bst => self.register_b = combo_operand % 8,
+                Instruction::Jnz => {
+                    if self.register_a != 0 {
+                        instruction_pointer = (literal_operand / 2) as usize;
+                        continue;
                     }
-                    '.' => {
-                        row_tiles.push(Tile::Empty);
-                    }
-                    'S' => {
-                        row_tiles.push(Tile::Empty);
-                        start = Some((x, y));
-                    }
-                    'E' => {
-                        row_tiles.push(Tile::Empty);
-                        end = Some((x, y));
-                    }
-                    _ => panic!("Unexpected character"),
+                }
+                Instruction::Bxc => self.register_b = self.register_b.bitxor(self.register_c),
+                Instruction::Out => {
+                    self.output.push((combo_operand % 8) as u8);
+                }
+                Instruction::Bdv => {
+                    self.register_b = self.register_a / (combo_operand.pow(2)) as usize
+                }
+                Instruction::Cdv => {
+                    self.register_c = self.register_a / (combo_operand.pow(2)) as usize
                 }
             }
 
-            tiles.push(row_tiles);
+            instruction_pointer += 2;
         }
-
-        let start = start.unwrap();
-        let end = end.unwrap();
-
-        Map { tiles, start, end }
-    }
-
-    fn print(&self, visited: Option<HashSet<(usize, usize)>>) {
-        let visited = visited.unwrap_or_default();
-
-        for (y, row) in self.tiles.iter().enumerate() {
-            for (x, tile) in row.iter().enumerate() {
-                if visited.contains(&(x, y)) {
-                    print!("x");
-                    continue;
-                }
-
-                match tile {
-                    Tile::Empty => print!("."),
-                    Tile::Wall => print!("#"),
-                }
-            }
-            println!();
-        }
-
-        println!();
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum Direction {
-    North,
-    South,
-    West,
-    East,
-}
-
-impl Direction {
-    fn rotate_clockwise(self) -> Self {
-        match self {
-            Direction::North => Direction::East,
-            Direction::South => Direction::West,
-            Direction::West => Direction::North,
-            Direction::East => Direction::South,
-        }
-    }
-
-    fn rotate_counterclockwise(self) -> Self {
-        match self {
-            Direction::East => Direction::North,
-            Direction::West => Direction::South,
-            Direction::North => Direction::West,
-            Direction::South => Direction::East,
-        }
-    }
-}
-
-struct Maze {
-    map: Map,
-    reindeer: (usize, usize, Direction),
-}
-
-impl Maze {
-    fn parse(input: &str) -> Self {
-        let map = Map::parse(input);
-
-        let reindeer = (map.start.0, map.start.1, Direction::East);
-
-        Self { map, reindeer }
-    }
-
-    fn next_positions(
-        &self,
-        current_position: (usize, usize, Direction),
-    ) -> Vec<(usize, usize, Direction, usize)> {
-        let forward_pos = match current_position.2 {
-            Direction::North => (current_position.0 as isize, current_position.1 as isize - 1),
-            Direction::South => (current_position.0 as isize, current_position.1 as isize + 1),
-            Direction::West => (current_position.0 as isize - 1, current_position.1 as isize),
-            Direction::East => (current_position.0 as isize + 1, current_position.1 as isize),
-        };
-
-        let rotated_current_position = vec![
-            (
-                current_position.0,
-                current_position.1,
-                current_position.2.rotate_clockwise(),
-                1000,
-            ),
-            (
-                current_position.0,
-                current_position.1,
-                current_position.2.rotate_counterclockwise(),
-                1000,
-            ),
-        ];
-
-        if forward_pos.0 < 0
-            || forward_pos.1 < 0
-            || forward_pos.0 > self.map.width() as isize
-            || forward_pos.1 > self.map.height() as isize
-        {
-            return rotated_current_position;
-        }
-
-        let forward_pos = (forward_pos.0 as usize, forward_pos.1 as usize);
-
-        let forward_tile = &self.map.tiles[forward_pos.1][forward_pos.0];
-
-        match forward_tile {
-            Tile::Empty => {
-                let mut result = vec![(forward_pos.0, forward_pos.1, current_position.2, 1)];
-                result.append(&mut rotated_current_position.clone());
-                result
-            }
-            Tile::Wall => rotated_current_position,
-        }
-    }
-
-    fn find_shortest_paths(&self) -> Option<(Vec<Vec<(usize, usize, Direction)>>, usize)> {
-        let mut visited = HashSet::new();
-
-        let result = astar_bag_collect(
-            &self.reindeer,
-            |&(x, y, direction)| {
-                let successors = self
-                    .next_positions((x, y, direction))
-                    .iter()
-                    .map(|(nx, ny, nd, cost)| ((*nx, *ny, *nd), *cost))
-                    .collect::<Vec<_>>();
-
-                visited.insert((x, y));
-
-                successors
-            },
-            |&(x, y, _)| {
-                let (ex, ey) = self.map.end;
-
-                (((ex as isize - x as isize).pow(2) + (ey as isize - y as isize).pow(2)) as f64)
-                    .sqrt() as usize
-            },
-            |(x, y, _)| (*x, *y) == self.map.end,
-        );
-
-        result
     }
 }
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day16.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day17.txt").expect("Failed to read file");
 
-    let maze = Maze::parse(&input);
+    let result = 0;
 
-    let (shortest_paths, cost) = maze.find_shortest_paths().unwrap();
-
-    println!("Result (Part 1): {cost}");
-
-    let common_tiles = shortest_paths
-        .into_iter()
-        .map(|tiles| {
-            tiles
-                .iter()
-                .map(|tile| (tile.0, tile.1))
-                .collect::<HashSet<(usize, usize)>>()
-        })
-        .reduce(|acc, e| acc.union(&e).copied().collect())
-        .unwrap()
-        .len();
-
-    println!("Result (Part 2): {common_tiles}");
+    println!("Result (Part 1): {result}");
 }
 
 #[cfg(test)]
@@ -233,38 +131,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_example() {
+    fn test_one() {
         let input = r#"
-###############
-#.......#....E#
-#.#.###.#.###.#
-#.....#.#...#.#
-#.###.#####.#.#
-#.#.#.......#.#
-#.#.#####.###.#
-#...........#.#
-###.#.#####.#.#
-#...#.....#.#.#
-#.#.#.###.#.#.#
-#.....#...#.#.#
-#.###.#.#.#.#.#
-#S..#.....#...#
-###############
+Register A: 729
+Register B: 0
+Register C: 0
+
+Program: 0,1,5,4,3,0
         "#;
 
-        let maze = Maze::parse(input);
+        let mut computer = Computer::parse(input);
 
-        let (shortest_paths, cost) = maze.find_shortest_paths().unwrap();
+        assert_eq!(computer.register_a, 729);
+        assert_eq!(computer.register_b, 0);
+        assert_eq!(computer.register_c, 0);
+        assert_eq!(computer.program, vec![0, 1, 5, 4, 3, 0]);
 
-        let path = shortest_paths
-            .first()
-            .unwrap()
-            .iter()
-            .map(|(x, y, _)| (*x, *y))
-            .collect::<HashSet<(usize, usize)>>();
+        computer.execute();
 
-        maze.map.print(Some(path));
-
-        assert_eq!(cost, 7036);
+        assert_eq!(computer.output, vec![4, 6, 3, 5, 6, 3, 5, 2, 1, 0]);
     }
 }
