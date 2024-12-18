@@ -1,5 +1,6 @@
 use std::{collections::VecDeque, fs, ops::BitXor};
 
+#[derive(Debug)]
 enum Instruction {
     Adv,
     Bxl,
@@ -43,22 +44,21 @@ impl Computer {
 
         let mut lines = input.lines();
 
-        let line = lines.next().unwrap();
-
+        let line = lines.next().unwrap().trim();
         let line = line.trim_start_matches("Register A: ");
         let register_a = line.parse().unwrap();
 
-        let line = lines.next().unwrap();
+        let line = lines.next().unwrap().trim();
         let line = line.trim_start_matches("Register B: ");
         let register_b = line.parse().unwrap();
 
-        let line = lines.next().unwrap();
+        let line = lines.next().unwrap().trim();
         let line = line.trim_start_matches("Register C: ");
         let register_c = line.parse().unwrap();
 
         lines.next();
 
-        let line = lines.next().unwrap();
+        let line = lines.next().unwrap().trim();
         let line = line.trim_start_matches("Program: ");
 
         let program: VecDeque<_> = line.trim().split(',').map(|c| c.parse().unwrap()).collect();
@@ -72,6 +72,16 @@ impl Computer {
         }
     }
 
+    fn get_combo_operand(&self, literal_operand: u8) -> usize {
+        match literal_operand {
+            0..=3 => literal_operand as usize,
+            4 => self.register_a,
+            5 => self.register_b,
+            6 => self.register_c,
+            _ => panic!("Unexpected combo operand identifier {}", literal_operand),
+        }
+    }
+
     fn execute(&mut self) {
         let mut instruction_pointer = 0;
 
@@ -79,22 +89,16 @@ impl Computer {
             let instruction = Instruction::try_from(self.program[instruction_pointer]).unwrap();
 
             let literal_operand = self.program[instruction_pointer + 1];
-            let combo_operand = match literal_operand {
-                0..=3 => literal_operand as usize,
-                4 => self.register_a,
-                5 => self.register_b,
-                6 => self.register_c,
-                _ => panic!("Unexpected combo operand identifier {}", literal_operand),
-            };
 
             match instruction {
                 Instruction::Adv => {
-                    self.register_a = self.register_a / (combo_operand.pow(2)) as usize
+                    self.register_a =
+                        self.register_a / (self.get_combo_operand(literal_operand).pow(2)) as usize
                 }
                 Instruction::Bxl => {
                     self.register_b = self.register_b.bitxor(literal_operand as usize)
                 }
-                Instruction::Bst => self.register_b = combo_operand % 8,
+                Instruction::Bst => self.register_b = self.get_combo_operand(literal_operand) % 8,
                 Instruction::Jnz => {
                     if self.register_a != 0 {
                         instruction_pointer = (literal_operand / 2) as usize;
@@ -103,13 +107,16 @@ impl Computer {
                 }
                 Instruction::Bxc => self.register_b = self.register_b.bitxor(self.register_c),
                 Instruction::Out => {
-                    self.output.push((combo_operand % 8) as u8);
+                    self.output
+                        .push((self.get_combo_operand(literal_operand) % 8) as u8);
                 }
                 Instruction::Bdv => {
-                    self.register_b = self.register_a / (combo_operand.pow(2)) as usize
+                    self.register_b =
+                        self.register_a / (self.get_combo_operand(literal_operand).pow(2)) as usize
                 }
                 Instruction::Cdv => {
-                    self.register_c = self.register_a / (combo_operand.pow(2)) as usize
+                    self.register_c =
+                        self.register_a / (self.get_combo_operand(literal_operand).pow(2)) as usize
                 }
             }
 
@@ -131,14 +138,90 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_instructions_one() {
+        let mut computer = Computer {
+            register_a: 0,
+            register_b: 0,
+            register_c: 9,
+            output: vec![],
+            program: vec![2, 6].into(),
+        };
+
+        computer.execute();
+
+        assert_eq!(computer.register_b, 1);
+    }
+
+    #[test]
+    fn test_instructions_two() {
+        let mut computer = Computer {
+            register_a: 10,
+            register_b: 0,
+            register_c: 0,
+            output: vec![],
+            program: vec![5, 0, 5, 1, 5, 4].into(),
+        };
+
+        computer.execute();
+
+        assert_eq!(computer.output, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_instructions_three() {
+        let mut computer = Computer {
+            register_a: 2024,
+            register_b: 0,
+            register_c: 0,
+            output: vec![],
+            program: vec![0, 1, 5, 4, 3, 0].into(),
+        };
+
+        computer.execute();
+
+        assert_eq!(computer.output, vec![4, 2, 5, 6, 7, 7, 7, 7, 3, 1, 0]);
+        assert_eq!(computer.register_a, 0);
+    }
+
+    #[test]
+    fn test_instructions_four() {
+        let mut computer = Computer {
+            register_a: 0,
+            register_b: 29,
+            register_c: 0,
+            output: vec![],
+            program: vec![1, 7].into(),
+        };
+
+        computer.execute();
+
+        assert_eq!(computer.register_b, 26);
+    }
+
+    #[test]
+    fn test_instructions_five() {
+        let mut computer = Computer {
+            register_a: 0,
+            register_b: 2024,
+            register_c: 43690,
+            output: vec![],
+            program: vec![4, 0].into(),
+        };
+
+        computer.execute();
+
+        assert_eq!(computer.register_b, 44354);
+    }
+
+    #[test]
     fn test_one() {
         let input = r#"
-Register A: 729
-Register B: 0
-Register C: 0
+    Register A: 729
+    Register B: 0
+    Register C: 0
 
-Program: 0,1,5,4,3,0
-        "#;
+    Program: 0,1,5,4,3,0
+            "#;
 
         let mut computer = Computer::parse(input);
 
