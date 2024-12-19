@@ -1,30 +1,28 @@
 use std::{collections::HashMap, fs};
 
 fn can_be_combined(output: &str, parts: &[&str]) -> bool {
-    if output.len() < 1 {
+    if output.is_empty() {
         return true;
     }
 
     for part in parts {
-        if output.starts_with(part) {
-            if can_be_combined(output.trim_start_matches(part), parts) {
-                return true;
-            }
+        if output.starts_with(part) && can_be_combined(output.trim_start_matches(part), parts) {
+            return true;
         }
     }
 
-    return false;
+    false
 }
 
-fn get_possible_combination_count<'w, 'p>(
+fn get_possible_combination_count<'w>(
     cache: &mut HashMap<&'w str, usize>,
     output: &'w str,
-    parts: &[&'p str],
+    parts: &[&str],
 ) -> usize {
     let entry = cache.get(output);
 
     if let Some(result) = entry {
-        return result.clone();
+        return *result;
     }
 
     let mut result = 0;
@@ -33,7 +31,7 @@ fn get_possible_combination_count<'w, 'p>(
         if output.starts_with(part) {
             let remaining = &output[part.len()..output.len()];
 
-            if remaining.len() == 0 {
+            if remaining.is_empty() {
                 result += 1;
                 continue;
             }
@@ -44,9 +42,9 @@ fn get_possible_combination_count<'w, 'p>(
         }
     }
 
-    cache.insert(output, result.clone());
+    cache.insert(output, result);
 
-    return result;
+    result
 }
 
 fn main() {
@@ -60,10 +58,7 @@ fn main() {
 
     lines.next();
 
-    let mut words = vec![];
-    while let Some(word) = lines.next() {
-        words.push(word);
-    }
+    let words: Vec<_> = lines.collect();
 
     let result = words
         .iter()
