@@ -1,4 +1,7 @@
-use std::fs;
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+};
 
 fn can_be_combined(output: &str, parts: &[&str]) -> bool {
     if output.len() < 1 {
@@ -14,6 +17,43 @@ fn can_be_combined(output: &str, parts: &[&str]) -> bool {
     }
 
     return false;
+}
+
+fn get_possible_combinations<'w, 'p>(
+    cache: &mut HashMap<&'w str, HashSet<Vec<&'p str>>>,
+    output: &'w str,
+    parts: &[&'p str],
+) -> HashSet<Vec<&'p str>> {
+    let entry = cache.get(output);
+
+    if let Some(result) = entry {
+        return result.clone();
+    }
+
+    let mut result = HashSet::new();
+
+    for part in parts {
+        if output.starts_with(part) {
+            let remaining = &output[part.len()..output.len()];
+
+            if remaining.len() == 0 {
+                result.insert(vec![*part]);
+                continue;
+            }
+
+            let childs = get_possible_combinations(cache, remaining, parts);
+
+            for mut child in childs {
+                let mut x = vec![*part];
+                x.append(&mut child);
+                result.insert(x);
+            }
+        }
+    }
+
+    cache.insert(output, result.clone());
+
+    return result;
 }
 
 fn main() {
@@ -39,6 +79,19 @@ fn main() {
         .len();
 
     println!("Result (Part 1): {result}");
+
+    let mut cache = HashMap::new();
+
+    let result: usize = words
+        .iter()
+        .enumerate()
+        .map(|(i, word)| {
+            println!("Iteration {i}");
+            get_possible_combinations(&mut cache, word, &parts).len()
+        })
+        .sum();
+
+    println!("Result (Part 2): {result}");
 }
 
 #[cfg(test)]
@@ -57,5 +110,70 @@ mod tests {
         assert_eq!(can_be_combined("bwurrg", &parts), true);
         assert_eq!(can_be_combined("brgr", &parts), true);
         assert_eq!(can_be_combined("bbrgwb", &parts), false);
+    }
+
+    #[test]
+    fn test_get_possible_combinations() {
+        let parts = ["r", "wr", "b", "g", "bwu", "rb", "gb", "br"];
+
+        let mut cache = HashMap::new();
+
+        assert_eq!(
+            get_possible_combinations(&mut cache, "brwrr", &parts),
+            [vec!["b", "r", "wr", "r"], vec!["br", "wr", "r"]]
+                .into_iter()
+                .collect::<HashSet<_>>()
+        );
+
+        assert_eq!(
+            get_possible_combinations(&mut cache, "bggr", &parts),
+            [vec!["b", "g", "g", "r"]]
+                .into_iter()
+                .collect::<HashSet<_>>()
+        );
+        assert_eq!(
+            get_possible_combinations(&mut cache, "gbbr", &parts),
+            [
+                vec!["g", "b", "b", "r"],
+                vec!["g", "b", "br"],
+                vec!["gb", "b", "r"],
+                vec!["gb", "br"]
+            ]
+            .into_iter()
+            .collect::<HashSet<_>>()
+        );
+        assert_eq!(
+            get_possible_combinations(&mut cache, "rrbgbr", &parts),
+            [
+                vec!["r", "r", "b", "g", "b", "r"],
+                vec!["r", "r", "b", "g", "br"],
+                vec!["r", "r", "b", "gb", "r"],
+                vec!["r", "rb", "g", "b", "r"],
+                vec!["r", "rb", "g", "br"],
+                vec!["r", "rb", "gb", "r"]
+            ]
+            .into_iter()
+            .collect::<HashSet<_>>()
+        );
+        assert_eq!(
+            get_possible_combinations(&mut cache, "ubwu", &parts),
+            [].into_iter().collect::<HashSet<_>>()
+        );
+        assert_eq!(
+            get_possible_combinations(&mut cache, "bwurrg", &parts),
+            [vec!["bwu", "r", "r", "g"]]
+                .into_iter()
+                .collect::<HashSet<_>>()
+        );
+        assert_eq!(
+            get_possible_combinations(&mut cache, "brgr", &parts),
+            [vec!["b", "r", "g", "r"], vec!["br", "g", "r"]]
+                .into_iter()
+                .collect::<HashSet<_>>()
+        );
+        assert_eq!(
+            get_possible_combinations(&mut cache, "bbrgwb", &parts),
+            [].into_iter().collect::<HashSet<_>>()
+        );
     }
 }
