@@ -194,7 +194,7 @@ impl Map {
     }
 
     fn try_shift_up(&mut self, start: (usize, usize)) -> bool {
-        let mut column = self.get_row(start.0);
+        let mut column = self.get_column(start.0);
 
         let should_update = shift_left(&mut column, start.1);
 
@@ -315,6 +315,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_get_column() {
+        let input = r#"
+#
+O
+.
+O
+.
+.
+        "#;
+
+        let (map, _) = Map::parse(input);
+
+        let column = map.get_column(0);
+
+        assert_eq!(
+            column,
+            vec![
+                Some(Object::Wall),
+                Some(Object::Box),
+                None,
+                Some(Object::Box),
+                None,
+                None,
+            ]
+        );
+    }
+
+    #[test]
     fn test_shift_right() {
         let input = r#"
 ..O.O#
@@ -412,6 +440,118 @@ mod tests {
                 None,
                 None,
                 None,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_shift_up() {
+        let input = r#"
+#
+O
+.
+O
+.
+.
+        "#;
+
+        let (mut map, _) = Map::parse(input);
+
+        map.try_shift_up((0, 5));
+
+        assert_eq!(
+            map.get_column(0),
+            vec![
+                Some(Object::Wall),
+                Some(Object::Box),
+                None,
+                Some(Object::Box),
+                None,
+                None,
+            ]
+        );
+
+        map.try_shift_up((0, 3));
+
+        assert_eq!(
+            map.get_column(0),
+            vec![
+                Some(Object::Wall),
+                Some(Object::Box),
+                Some(Object::Box),
+                None,
+                None,
+                None,
+            ]
+        );
+
+        map.try_shift_up((0, 2));
+
+        assert_eq!(
+            map.get_column(0),
+            vec![
+                Some(Object::Wall),
+                Some(Object::Box),
+                Some(Object::Box),
+                None,
+                None,
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_shift_down() {
+        let input = r#"
+.
+.
+O
+.
+O
+#
+        "#;
+
+        let (mut map, _) = Map::parse(input);
+
+        map.try_shift_down((0, 0));
+
+        assert_eq!(
+            map.get_column(0),
+            vec![
+                None,
+                None,
+                Some(Object::Box),
+                None,
+                Some(Object::Box),
+                Some(Object::Wall),
+            ]
+        );
+
+        map.try_shift_down((0, 2));
+
+        assert_eq!(
+            map.get_column(0),
+            vec![
+                None,
+                None,
+                None,
+                Some(Object::Box),
+                Some(Object::Box),
+                Some(Object::Wall),
+            ]
+        );
+
+        map.try_shift_down((0, 3));
+
+        assert_eq!(
+            map.get_column(0),
+            vec![
+                None,
+                None,
+                None,
+                Some(Object::Box),
+                Some(Object::Box),
+                Some(Object::Wall),
             ]
         );
     }
