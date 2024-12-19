@@ -9,23 +9,12 @@ struct MemorySpace {
 }
 
 impl MemorySpace {
-    fn parse(size: usize, input: &str, limit: usize) -> Self {
-        let input = input.trim();
+    fn set(&mut self, coordinate: &(usize, usize), value: bool) {
+        self.tiles[coordinate.1][coordinate.0] = value;
+    }
 
-        let mut tiles = vec![vec![false; size]; size];
-
-        for (i, line) in input.lines().enumerate() {
-            if i >= limit {
-                break;
-            }
-
-            let mut parts = line.split(',');
-            let x: usize = parts.next().unwrap().parse().unwrap();
-            let y: usize = parts.next().unwrap().parse().unwrap();
-
-            tiles[y][x] = true;
-        }
-
+    fn new(size: usize) -> Self {
+        let tiles = vec![vec![false; size]; size];
         Self { size, tiles }
     }
 
@@ -37,7 +26,7 @@ impl MemorySpace {
         let result = astar(
             start,
             |&(x, y)| {
-                let next_positions = [
+                [
                     (x as isize, y as isize - 1),
                     (x as isize, y as isize + 1),
                     (x as isize - 1, y as isize),
@@ -59,12 +48,10 @@ impl MemorySpace {
                         return None;
                     }
 
-                    return Some((x, y));
+                    Some((x, y))
                 })
                 .map(|x| (x, 1))
-                .collect::<Vec<_>>();
-
-                next_positions
+                .collect::<Vec<_>>()
             },
             |&(x, y)| {
                 let (ex, ey) = *end;
@@ -75,14 +62,35 @@ impl MemorySpace {
             |pos| pos == end,
         );
 
-        result.map(|(_, cost)| cost as usize)
+        result.map(|(_, cost)| cost)
     }
+}
+
+fn parse_coordinates(input: &str) -> Vec<(usize, usize)> {
+    let input = input.trim();
+
+    let mut result = vec![];
+
+    for line in input.lines() {
+        let mut parts = line.split(',');
+        let x: usize = parts.next().unwrap().parse().unwrap();
+        let y: usize = parts.next().unwrap().parse().unwrap();
+        result.push((x, y));
+    }
+
+    result
 }
 
 fn main() {
     let input = fs::read_to_string("./inputs/day18.txt").expect("Failed to read file");
 
-    let memspace = MemorySpace::parse(71, &input, 1024);
+    let coordinates = parse_coordinates(&input);
+
+    let mut memspace = MemorySpace::new(71);
+
+    for coordinate in &coordinates[0..1024] {
+        memspace.set(coordinate, true);
+    }
 
     let shortest_path = memspace.find_shortest_path_len(&(0, 0), &(70, 70)).unwrap();
 
@@ -90,21 +98,22 @@ fn main() {
 
     let mut memspace = memspace.clone();
 
-    for line in input.lines().skip(1024) {
-        let mut parts = line.split(',');
-        let x: usize = parts.next().unwrap().parse().unwrap();
-        let y: usize = parts.next().unwrap().parse().unwrap();
-
-        memspace.tiles[y][x] = true;
+    let mut result = None;
+    for coordinate in coordinates.iter().skip(1024) {
+        memspace.set(coordinate, true);
 
         if memspace
             .find_shortest_path_len(&(0, 0), &(70, 70))
             .is_none()
         {
-            println!("Result (Part 2): {x},{y}");
+            result = Some(coordinate);
             break;
         }
     }
+
+    let result = result.unwrap();
+
+    println!("Result (Part 2): {},{}", result.0, result.1);
 }
 
 #[cfg(test)]
@@ -141,7 +150,13 @@ mod tests {
 2,0
         "#;
 
-        let memspace = MemorySpace::parse(7, input, 12);
+        let coordinates = parse_coordinates(&input);
+
+        let mut memspace = MemorySpace::new(7);
+
+        for coordinate in &coordinates[0..12] {
+            memspace.set(coordinate, true);
+        }
 
         assert_eq!(
             memspace.tiles,
