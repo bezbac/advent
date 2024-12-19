@@ -1,85 +1,313 @@
-use std::{collections::HashMap, fs};
+use std::{collections::VecDeque, fs};
 
-fn can_be_combined(output: &str, parts: &[&str]) -> bool {
-    if output.is_empty() {
-        return true;
+fn shift_right(row: &mut Vec<Option<Object>>, start: usize) -> bool {
+    match row[start] {
+        Some(Object::Box) => {}
+        Some(Object::Wall) => return true,
+        None => return true,
     }
 
-    for part in parts {
-        if output.starts_with(part) && can_be_combined(output.trim_start_matches(part), parts) {
-            return true;
+    let mut current: Option<Object> = row[start];
+    row[start] = None;
+
+    for i in start + 1..row.len() {
+        if current.is_none() {
+            break;
+        }
+
+        if row[i] == Some(Object::Wall) {
+            return false;
+        }
+
+        if row[i].is_none() {
+            row[i] = current;
+            current = None;
+            break;
         }
     }
 
-    false
+    if current.is_some() {
+        return false;
+    }
+
+    true
 }
 
-fn get_possible_combination_count<'w>(
-    cache: &mut HashMap<&'w str, usize>,
-    output: &'w str,
-    parts: &[&str],
-) -> usize {
-    let entry = cache.get(output);
-
-    if let Some(result) = entry {
-        return *result;
+fn shift_left(row: &mut Vec<Option<Object>>, start: usize) -> bool {
+    match row[start] {
+        Some(Object::Box) => {}
+        Some(Object::Wall) => return true,
+        None => return true,
     }
 
-    let mut result = 0;
+    let mut current: Option<Object> = row[start];
+    row[start] = None;
 
-    for part in parts {
-        if output.starts_with(part) {
-            let remaining = &output[part.len()..output.len()];
+    for i in (0..start).rev() {
+        if current.is_none() {
+            break;
+        }
 
-            if remaining.is_empty() {
-                result += 1;
-                continue;
-            }
+        if row[i] == Some(Object::Wall) {
+            return false;
+        }
 
-            let childs = get_possible_combination_count(cache, remaining, parts);
-
-            result += childs;
+        if row[i].is_none() {
+            row[i] = current;
+            current = None;
+            break;
         }
     }
 
-    cache.insert(output, result);
+    if current.is_some() {
+        return false;
+    }
 
-    result
+    true
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Object {
+    Wall,
+    Box,
+}
+
+#[derive(Debug)]
+struct Map {
+    tiles: Vec<Vec<Option<Object>>>,
+}
+
+impl Map {
+    fn width(&self) -> usize {
+        self.tiles.first().unwrap().len()
+    }
+
+    fn height(&self) -> usize {
+        self.tiles.len()
+    }
+
+    fn print(&self) {
+        for y in 0..self.height() {
+            for x in 0..self.width() {
+                match self.tiles[y][x] {
+                    None => print!("."),
+                    Some(Object::Box) => print!("O"),
+                    Some(Object::Wall) => print!("#"),
+                }
+            }
+            println!();
+        }
+    }
+
+    fn parse(input: &str) -> (Self, (usize, usize)) {
+        let input = input.trim();
+
+        let mut split = input.split("\n\n").into_iter();
+        let tile_input = split.next().unwrap();
+        let mut robot = (0, 0);
+
+        let mut tiles: Vec<Vec<Option<Object>>> = Vec::new();
+
+        for (y, line) in tile_input.lines().enumerate() {
+            let mut row: Vec<Option<Object>> = Vec::new();
+
+            for (x, c) in line.chars().enumerate() {
+                match c {
+                    '#' => row.push(Some(Object::Wall)),
+                    'O' => row.push(Some(Object::Box)),
+                    '@' => {
+                        row.push(None);
+                        robot = (x, y);
+                    }
+                    '.' => row.push(None),
+                    _ => panic!("Unknown character: {}", c),
+                }
+            }
+
+            tiles.push(row);
+        }
+
+        (Map { tiles }, robot)
+    }
+
+    fn get_row(&self, index: usize) -> Vec<Option<Object>> {
+        self.tiles[index].clone()
+    }
+
+    fn set_row(&mut self, index: usize, row: Vec<Option<Object>>) {
+        self.tiles[index] = row;
+    }
+
+    fn get_column(&self, index: usize) -> Vec<Option<Object>> {
+        let mut result = vec![];
+
+        for i in 0..self.height() {
+            result.push(self.tiles[i][index])
+        }
+
+        result
+    }
+
+    fn set_column(&mut self, index: usize, column: Vec<Option<Object>>) {
+        for i in 0..self.height() {
+            self.tiles[i][index] = column[i]
+        }
+    }
+
+    fn try_shift_right(&mut self, start: (usize, usize)) -> bool {
+        let mut row = self.get_row(start.1);
+
+        let should_update = shift_right(&mut row, start.0);
+
+        if should_update {
+            self.set_row(start.1, row);
+            return true;
+        }
+
+        false
+    }
+
+    fn try_shift_left(&mut self, start: (usize, usize)) -> bool {
+        let mut row = self.get_row(start.1);
+
+        let should_update = shift_left(&mut row, start.0);
+
+        if should_update {
+            self.set_row(start.1, row);
+            return true;
+        }
+
+        false
+    }
+
+    fn try_shift_down(&mut self, start: (usize, usize)) -> bool {
+        let mut column = self.get_column(start.0);
+
+        let should_update = shift_right(&mut column, start.1);
+
+        if should_update {
+            self.set_column(start.0, column);
+            return true;
+        }
+
+        false
+    }
+
+    fn try_shift_up(&mut self, start: (usize, usize)) -> bool {
+        let mut column = self.get_row(start.0);
+
+        let should_update = shift_left(&mut column, start.1);
+
+        if should_update {
+            self.set_column(start.0, column);
+            return true;
+        }
+
+        false
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Move {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl TryFrom<char> for Move {
+    type Error = ();
+
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        Ok(match value {
+            '^' => Move::Up,
+            'v' => Move::Down,
+            '<' => Move::Left,
+            '>' => Move::Right,
+            _ => return Err(()),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct Game {
+    map: Map,
+    instructions: VecDeque<Move>,
+    robot: (usize, usize),
+}
+
+impl Game {
+    fn parse(input: &str) -> Game {
+        let input = input.trim();
+
+        let mut split = input.split("\n\n").into_iter();
+        let tile_input = split.next().unwrap();
+        let (map, robot) = Map::parse(tile_input);
+
+        let instructions_input = split.next().unwrap();
+        let mut instructions: VecDeque<Move> = VecDeque::new();
+
+        for c in instructions_input.chars() {
+            if let Ok(instruction) = Move::try_from(c) {
+                instructions.push_back(instruction);
+            } else {
+                panic!("Unknown instruction: {}", c);
+            }
+        }
+
+        Game {
+            map,
+            instructions,
+            robot,
+        }
+    }
+
+    fn step(&mut self) {
+        let Some(instruction) = self.instructions.pop_front() else {
+            return;
+        };
+
+        match instruction {
+            Move::Right => {
+                let next_pos = (self.robot.0 + 1, self.robot.1);
+                if self.map.try_shift_right(next_pos) {
+                    self.robot = next_pos
+                }
+            }
+            Move::Left => {
+                let next_pos = (self.robot.0 - 1, self.robot.1);
+                if self.map.try_shift_left(next_pos) {
+                    self.robot = next_pos
+                }
+            }
+            Move::Down => {
+                let next_pos = (self.robot.0, self.robot.1 + 1);
+                if self.map.try_shift_down(next_pos) {
+                    self.robot = next_pos
+                }
+            }
+            Move::Up => {
+                let next_pos = (self.robot.0, self.robot.1 - 1);
+                if self.map.try_shift_up(next_pos) {
+                    self.robot = next_pos
+                }
+            }
+        }
+    }
+
+    fn run(&mut self) {
+        while self.instructions.len() > 0 {
+            self.step();
+        }
+    }
 }
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day19.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day15.txt").expect("Failed to read file");
 
-    let input = input.trim();
-
-    let mut lines = input.lines();
-
-    let parts: Vec<&str> = lines.next().unwrap().split(", ").collect();
-
-    lines.next();
-
-    let words: Vec<_> = lines.collect();
-
-    let result = words
-        .iter()
-        .filter(|word| can_be_combined(word, &parts))
-        .collect::<Vec<_>>()
-        .len();
+    let result = 0;
 
     println!("Result (Part 1): {result}");
-
-    let mut cache = HashMap::new();
-
-    let result: usize = words
-        .iter()
-        .enumerate()
-        .map(|(i, word)| {
-            println!("Iteration {i}");
-            get_possible_combination_count(&mut cache, word, &parts)
-        })
-        .sum();
-
-    println!("Result (Part 2): {result}");
 }
 
 #[cfg(test)]
@@ -87,57 +315,126 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_can_be_combined() {
-        let parts = ["r", "wr", "b", "g", "bwu", "rb", "gb", "br"];
+    fn test_shift_right() {
+        let input = r#"
+..O.O#
+        "#;
 
-        assert_eq!(can_be_combined("brwrr", &parts), true);
-        assert_eq!(can_be_combined("bggr", &parts), true);
-        assert_eq!(can_be_combined("gbbr", &parts), true);
-        assert_eq!(can_be_combined("rrbgbr", &parts), true);
-        assert_eq!(can_be_combined("ubwu", &parts), false);
-        assert_eq!(can_be_combined("bwurrg", &parts), true);
-        assert_eq!(can_be_combined("brgr", &parts), true);
-        assert_eq!(can_be_combined("bbrgwb", &parts), false);
+        let (mut map, _) = Map::parse(input);
+
+        map.try_shift_right((0, 0));
+
+        assert_eq!(
+            map.tiles[0],
+            vec![
+                None,
+                None,
+                Some(Object::Box),
+                None,
+                Some(Object::Box),
+                Some(Object::Wall)
+            ]
+        );
+
+        map.try_shift_right((2, 0));
+
+        assert_eq!(
+            map.tiles[0],
+            vec![
+                None,
+                None,
+                None,
+                Some(Object::Box),
+                Some(Object::Box),
+                Some(Object::Wall)
+            ]
+        );
+
+        map.try_shift_right((3, 0));
+
+        assert_eq!(
+            map.tiles[0],
+            vec![
+                None,
+                None,
+                None,
+                Some(Object::Box),
+                Some(Object::Box),
+                Some(Object::Wall)
+            ]
+        );
     }
 
     #[test]
-    fn test_get_possible_combinations() {
-        let parts = ["r", "wr", "b", "g", "bwu", "rb", "gb", "br"];
+    fn test_shift_left() {
+        let input = r#"
+#O.O..
+        "#;
 
-        let mut cache = HashMap::new();
+        let (mut map, _) = Map::parse(input);
+
+        map.try_shift_left((5, 0));
 
         assert_eq!(
-            get_possible_combination_count(&mut cache, "brwrr", &parts),
-            2
+            map.tiles[0],
+            vec![
+                Some(Object::Wall),
+                Some(Object::Box),
+                None,
+                Some(Object::Box),
+                None,
+                None,
+            ]
         );
 
+        map.try_shift_left((3, 0));
+
         assert_eq!(
-            get_possible_combination_count(&mut cache, "bggr", &parts),
-            1
+            map.tiles[0],
+            vec![
+                Some(Object::Wall),
+                Some(Object::Box),
+                Some(Object::Box),
+                None,
+                None,
+                None,
+            ]
         );
+
+        map.try_shift_left((2, 0));
+
         assert_eq!(
-            get_possible_combination_count(&mut cache, "gbbr", &parts),
-            4
+            map.tiles[0],
+            vec![
+                Some(Object::Wall),
+                Some(Object::Box),
+                Some(Object::Box),
+                None,
+                None,
+                None,
+            ]
         );
-        assert_eq!(
-            get_possible_combination_count(&mut cache, "rrbgbr", &parts),
-            6
-        );
-        assert_eq!(
-            get_possible_combination_count(&mut cache, "ubwu", &parts),
-            0
-        );
-        assert_eq!(
-            get_possible_combination_count(&mut cache, "bwurrg", &parts),
-            1
-        );
-        assert_eq!(
-            get_possible_combination_count(&mut cache, "brgr", &parts),
-            2
-        );
-        assert_eq!(
-            get_possible_combination_count(&mut cache, "bbrgwb", &parts),
-            0
-        );
+    }
+
+    #[test]
+    fn test_example_one() {
+        let input = r#"
+########
+#..O.O.#
+##@.O..#
+#...O..#
+#.#.O..#
+#...O..#
+#......#
+########
+
+<^^>>>vv<v>>v<<
+        "#;
+
+        let mut game = Game::parse(input);
+
+        game.run();
+
+        game.map.print();
     }
 }
