@@ -2,6 +2,7 @@ use std::fs;
 
 use pathfinding::prelude::astar;
 
+#[derive(Clone)]
 struct MemorySpace {
     size: usize,
     tiles: Vec<Vec<bool>>,
@@ -86,6 +87,24 @@ fn main() {
     let shortest_path = memspace.find_shortest_path_len(&(0, 0), &(70, 70)).unwrap();
 
     println!("Result (Part 1): {shortest_path}");
+
+    let mut memspace = memspace.clone();
+
+    for line in input.lines().skip(1024) {
+        let mut parts = line.split(',');
+        let x: usize = parts.next().unwrap().parse().unwrap();
+        let y: usize = parts.next().unwrap().parse().unwrap();
+
+        memspace.tiles[y][x] = true;
+
+        if memspace
+            .find_shortest_path_len(&(0, 0), &(70, 70))
+            .is_none()
+        {
+            println!("Result (Part 2): {x},{y}");
+            break;
+        }
+    }
 }
 
 #[cfg(test)]
