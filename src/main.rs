@@ -3,7 +3,7 @@ use std::{collections::VecDeque, fs};
 fn shift_right(row: &mut Vec<Option<Object>>, start: usize) -> bool {
     match row[start] {
         Some(Object::Box) => {}
-        Some(Object::Wall) => return true,
+        Some(Object::Wall) => return false,
         None => return true,
     }
 
@@ -36,7 +36,7 @@ fn shift_right(row: &mut Vec<Option<Object>>, start: usize) -> bool {
 fn shift_left(row: &mut Vec<Option<Object>>, start: usize) -> bool {
     match row[start] {
         Some(Object::Box) => {}
-        Some(Object::Wall) => return true,
+        Some(Object::Wall) => return false,
         None => return true,
     }
 
@@ -72,7 +72,7 @@ enum Object {
     Box,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Map {
     tiles: Vec<Vec<Option<Object>>>,
 }
@@ -86,15 +86,23 @@ impl Map {
         self.tiles.len()
     }
 
-    fn print(&self) {
+    fn print(&self, robot: Option<(usize, usize)>) {
         for y in 0..self.height() {
             for x in 0..self.width() {
+                if let Some(robot) = robot {
+                    if robot.0 == x && robot.1 == y {
+                        print!("@");
+                        continue;
+                    }
+                }
+
                 match self.tiles[y][x] {
                     None => print!("."),
                     Some(Object::Box) => print!("O"),
                     Some(Object::Wall) => print!("#"),
                 }
             }
+
             println!();
         }
     }
@@ -205,6 +213,20 @@ impl Map {
 
         false
     }
+
+    fn checksum(&self) -> usize {
+        let mut result = 0;
+
+        for (y, row) in self.tiles.iter().enumerate() {
+            for (x, tile) in row.iter().enumerate() {
+                if let Some(Object::Box) = tile {
+                    result += 100 * y + x;
+                }
+            }
+        }
+
+        result
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -244,14 +266,19 @@ impl Game {
         let tile_input = split.next().unwrap();
         let (map, robot) = Map::parse(tile_input);
 
-        let instructions_input = split.next().unwrap();
         let mut instructions: VecDeque<Move> = VecDeque::new();
 
-        for c in instructions_input.chars() {
-            if let Ok(instruction) = Move::try_from(c) {
-                instructions.push_back(instruction);
-            } else {
-                panic!("Unknown instruction: {}", c);
+        while let Some(instructions_input) = split.next() {
+            for c in instructions_input.trim().chars() {
+                if c == '\n' {
+                    continue;
+                }
+
+                if let Ok(instruction) = Move::try_from(c) {
+                    instructions.push_back(instruction);
+                } else {
+                    panic!("Unknown instruction: {}", c);
+                }
             }
         }
 
@@ -300,12 +327,20 @@ impl Game {
             self.step();
         }
     }
+
+    fn checksum(&self) -> usize {
+        self.map.checksum()
+    }
 }
 
 fn main() {
     let input = fs::read_to_string("./inputs/day15.txt").expect("Failed to read file");
 
-    let result = 0;
+    let mut game = Game::parse(&input);
+
+    game.run();
+
+    let result = game.checksum();
 
     println!("Result (Part 1): {result}");
 }
@@ -575,6 +610,73 @@ O
 
         game.run();
 
-        game.map.print();
+        let expected = r#"
+########
+#....OO#
+##.....#
+#.....O#
+#.#O@..#
+#...O..#
+#...O..#
+########        
+        "#;
+
+        let (expected_map, expected_robot_position) = Map::parse(&expected);
+
+        assert_eq!(game.robot, expected_robot_position);
+        assert_eq!(game.map, expected_map);
+
+        assert_eq!(game.checksum(), 2028);
+    }
+
+    #[test]
+    fn test_example_two() {
+        let input = r#"
+##########
+#..O..O.O#
+#......O.#
+#.OO..O.O#
+#..O@..O.#
+#O#..O...#
+#O..O..O.#
+#.OO.O.OO#
+#....O...#
+##########
+
+<vv>^<v^>v>^vv^v>v<>v^v<v<^vv<<<^><<><>>v<vvv<>^v^>^<<<><<v<<<v^vv^v>^
+vvv<<^>^v^^><<>>><>^<<><^vv^^<>vvv<>><^^v>^>vv<>v<<<<v<^v>^<^^>>>^<v<v
+><>vv>v^v^<>><>>>><^^>vv>v<^^^>>v^v^<^^>v^^>v^<^v>v<>>v^v^<v>v^^<^^vv<
+<<v<^>>^^^^>>>v^<>vvv^><v<<<>^^^vv^<vvv>^>v<^^^^v<>^>vvvv><>>v^<<^^^^^
+^><^><>>><>^^<<^^v>>><^<v>^<vv>>v>>>^v><>^v><<<<v>>v<v<v>vvv>^<><<>^><
+^>><>^v<><^vvv<^^<><v<<<<<><^v<<<><<<^^<v<^^^><^>>^<v^><<<^>>^v<v^v<v^
+>^>>^v>vv>^<<^v<>><<><<v<<v><>v<^vv<<<>^^v^>^^>>><<^v>>v^v><^^>>^<>vv^
+<><^^>^^^<><vvvvv^v<v<<>^v<v>v<<^><<><<><<<^^<<<^<<>><<><^^^>^^<>^>v<>
+^^>vv<^v^v<vv>^<><v<^v>^^^>>>^^vvv^>vvv<>>>^<^>>>>>^<<^v>^vvv<>^<><<v>
+v^^>>><<^^<>>^v^<v^vv<>v^<<>^<^v^v><^<<<><<^<v><v<>vv>>v><v^<vv<>v^<<^
+        "#;
+
+        let mut game = Game::parse(input);
+
+        game.run();
+
+        let expected = r#"
+##########
+#.O.O.OOO#
+#........#
+#OO......#
+#OO@.....#
+#O#.....O#
+#O.....OO#
+#O.....OO#
+#OO....OO#
+##########      
+        "#;
+
+        let (expected_map, expected_robot_position) = Map::parse(&expected);
+
+        assert_eq!(game.robot, expected_robot_position);
+        assert_eq!(game.map, expected_map);
+
+        assert_eq!(game.checksum(), 10092);
     }
 }
