@@ -69,12 +69,17 @@ impl Map {
 
 struct Run {
     map: Map,
-    remaining_cheats: usize,
+    allow_cheats: bool,
+    cheat_position: Option<(usize, usize)>,
     forbidden_cheat_positions: HashMap<usize, HashSet<(usize, usize)>>,
 }
 
 impl Run {
-    fn next_positions(&self, &(x, y): &(usize, usize)) -> Vec<(usize, usize)> {
+    fn next_positions(
+        &mut self,
+        include_cheats: bool,
+        &(x, y): &(usize, usize),
+    ) -> Vec<(usize, usize)> {
         [
             (x as isize, y as isize - 1),
             (x as isize, y as isize + 1),
@@ -96,28 +101,7 @@ impl Run {
             let y = y as usize;
 
             if let Tile::Wall = self.map.tiles[y][x] {
-                if self.remaining_cheats == 2
-                    && self
-                        .forbidden_cheat_positions
-                        .get(&2)
-                        .unwrap_or(&HashSet::new())
-                        .contains(&(x, y))
-                {
-                    return None;
-                }
-
-                // FIXME: A cheat is only allowed *exactly once*
-                if self.remaining_cheats == 1
-                    && self
-                        .forbidden_cheat_positions
-                        .get(&1)
-                        .unwrap_or(&HashSet::new())
-                        .contains(&(x, y))
-                {
-                    return None;
-                }
-
-                if self.remaining_cheats == 0 {
+                if !include_cheats {
                     return None;
                 }
             }
@@ -127,12 +111,18 @@ impl Run {
         .collect()
     }
 
-    fn find_shortest_paths(&self) -> Option<(Vec<Vec<(usize, usize)>>, usize)> {
+    fn find_shortest_paths(&mut self) -> Option<(Vec<Vec<(usize, usize)>>, usize)> {
+        let start = self.map.start;
+        let end = self.map.end;
         let result = astar_bag_collect(
-            &self.map.start,
-            |position| {
+            &start,
+            |&(x, y)| {
+                if self.map.tiles[y][x] == Tile::Wall {
+                    self.cheat_position = Some((x, y));
+                }
+
                 let successors = self
-                    .next_positions(position)
+                    .next_positions(self.allow_cheats && self.cheat_position.is_none(), &(x, y))
                     .iter()
                     .map(|(nx, ny)| ((*nx, *ny), 1))
                     .collect::<Vec<_>>();
@@ -140,13 +130,15 @@ impl Run {
                 successors
             },
             |&(x, y)| {
-                let (ex, ey) = self.map.end;
+                let (ex, ey) = end;
 
                 (((ex as isize - x as isize).pow(2) + (ey as isize - y as isize).pow(2)) as f64)
                     .sqrt() as usize
             },
-            |position| position == &self.map.end,
+            |position| position == &end,
         );
+
+        dbg!(&result);
 
         result
     }
@@ -160,10 +152,11 @@ fn find_cheat_positions(map: &Map, path: &[(usize, usize)]) -> Vec<(usize, usize
 }
 
 fn find_cheats(map: Map) -> (usize, HashMap<usize, usize>) {
-    let baseline = Run {
+    let mut baseline = Run {
         map: map.clone(),
-        remaining_cheats: 0,
         forbidden_cheat_positions: HashMap::new(),
+        cheat_position: None,
+        allow_cheats: false,
     };
 
     let baseline = baseline.find_shortest_paths().unwrap().1;
@@ -172,13 +165,17 @@ fn find_cheats(map: Map) -> (usize, HashMap<usize, usize>) {
     let mut forbidden_cheat_positions: HashMap<usize, HashSet<(usize, usize)>> = HashMap::new();
 
     loop {
-        let cheat_run = Run {
+        let mut cheat_run = Run {
             map: map.clone(),
-            remaining_cheats: 2,
             forbidden_cheat_positions: forbidden_cheat_positions.clone(),
+            cheat_position: None,
+            allow_cheats: true,
         };
 
         let paths = cheat_run.find_shortest_paths();
+
+        dbg!(paths);
+        break;
 
         let Some((paths, cost)) = paths else {
             break;
