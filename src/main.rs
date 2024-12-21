@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs};
+use std::fs;
 
 use itertools::Itertools;
 
@@ -494,6 +494,8 @@ fn encode_code(code: &[Key], additional_passes: usize) -> Vec<DirectionalCommand
     let mut result = get_directional_commands_for_keycode(code, &Key::Activate);
 
     let mut i = 0;
+
+    // FIXME: This needs to be done in one go. Choosing the shortest encoding in pass 1 might lead to not being able to find the shortest encoding in pass 2
     while i < additional_passes {
         result = shortest_encode_directional_commands(&result);
         i += 1;
