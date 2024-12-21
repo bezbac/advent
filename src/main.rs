@@ -1,171 +1,449 @@
-use std::{collections::HashMap, fs};
+use std::fs;
 
-use pathfinding::prelude::astar_bag_collect;
-use rayon::iter::{ParallelBridge, ParallelIterator};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Tile {
-    Empty,
-    Wall,
-}
-
-#[derive(Debug, Clone)]
-struct Map {
-    tiles: Vec<Vec<Tile>>,
-    start: (usize, usize),
-    end: (usize, usize),
-}
-
-impl Map {
-    fn width(&self) -> usize {
-        self.tiles.first().unwrap().len()
-    }
-
-    fn height(&self) -> usize {
-        self.tiles.len()
-    }
-
-    fn parse(input: &str) -> Map {
-        let input = input.trim();
-
-        let mut tiles = Vec::new();
-        let mut start = None;
-        let mut end = None;
-
-        for (y, row) in input.lines().enumerate() {
-            let mut row_tiles = Vec::new();
-
-            for (x, c) in row.chars().enumerate() {
-                match c {
-                    '#' => {
-                        row_tiles.push(Tile::Wall);
-                    }
-                    '.' => {
-                        row_tiles.push(Tile::Empty);
-                    }
-                    'S' => {
-                        row_tiles.push(Tile::Empty);
-                        start = Some((x, y));
-                    }
-                    'E' => {
-                        row_tiles.push(Tile::Empty);
-                        end = Some((x, y));
-                    }
-                    _ => panic!("Unexpected character"),
-                }
-            }
-
-            tiles.push(row_tiles);
-        }
-
-        let start = start.unwrap();
-        let end = end.unwrap();
-
-        Map { tiles, start, end }
-    }
-
-    fn find_shortest_paths(&self) -> Option<(Vec<Vec<(usize, usize)>>, usize)> {
-        let start = self.start;
-        let end = self.end;
-        astar_bag_collect(
-            &start,
-            |&(x, y)| {
-                [
-                    (x as isize, y as isize - 1),
-                    (x as isize, y as isize + 1),
-                    (x as isize - 1, y as isize),
-                    (x as isize + 1, y as isize),
-                ]
-                .into_iter()
-                .filter_map(|(x, y)| -> Option<(usize, usize)> {
-                    let is_within_bounds = x >= 0
-                        && y >= 0
-                        && (x as usize) < self.width()
-                        && (y as usize) < self.height();
-
-                    if !is_within_bounds {
-                        return None;
-                    }
-
-                    let x = x as usize;
-                    let y = y as usize;
-
-                    if let Tile::Wall = self.tiles[y][x] {
-                        return None;
-                    }
-
-                    Some((x, y))
-                })
-                .map(|(x, y)| ((x, y), 1))
-                .collect::<Vec<_>>()
-            },
-            |&(x, y)| {
-                let (ex, ey) = end;
-
-                (((ex as isize - x as isize).pow(2) + (ey as isize - y as isize).pow(2)) as f64)
-                    .sqrt() as usize
-            },
-            |position| position == &end,
-        )
-    }
-}
-
-fn find_cheats(map: &Map) -> (usize, HashMap<usize, usize>) {
-    let baseline = map.find_shortest_paths();
-
-    let baseline = baseline.unwrap().1;
-
-    let results: Vec<(usize, usize)> = (0..map.height())
-        .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
-        .filter(|&(x, y)| map.tiles[y][x] == Tile::Wall)
-        .par_bridge()
-        .filter_map(|(x, y)| {
-            let mut derived = map.clone();
-            derived.tiles[y][x] = Tile::Empty;
-
-            let paths = derived.find_shortest_paths();
-
-            let (paths, cost) = paths?;
-
-            let saved_cost = baseline.abs_diff(cost);
-
-            if saved_cost < 1 {
-                return None;
-            }
-
-            Some((saved_cost, paths.len()))
-        })
-        .collect();
-
-    let mut result = HashMap::new();
-
-    for (saved_cost, count) in results {
-        let entry = result.entry(saved_cost).or_default();
-        *entry += count;
-    }
-
-    (baseline, result)
-}
+use itertools::Itertools;
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day20.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day21.txt").expect("Failed to read file");
 
-    let map = Map::parse(&input);
-
-    let (_, cheats) = find_cheats(&map);
-
-    let result: usize = cheats
-        .iter()
-        .filter_map(|(saved, count)| {
-            if saved < &100 {
-                return None;
-            }
-
-            Some(count)
-        })
-        .sum();
+    let result: usize = 0;
 
     println!("Result (Part 1): {result}");
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DirectionalCommand {
+    Up,
+    Down,
+    Left,
+    Right,
+    Activate,
+}
+
+impl DirectionalCommand {
+    fn reverse(self) -> Self {
+        match self {
+            DirectionalCommand::Up => DirectionalCommand::Down,
+            DirectionalCommand::Down => DirectionalCommand::Up,
+            DirectionalCommand::Left => DirectionalCommand::Right,
+            DirectionalCommand::Right => DirectionalCommand::Left,
+            DirectionalCommand::Activate => DirectionalCommand::Activate,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Key {
+    Zero,
+    One,
+    Two,
+    Three,
+    Four,
+    Five,
+    Six,
+    Seven,
+    Eight,
+    Nine,
+    Activate,
+}
+
+impl TryFrom<char> for Key {
+    type Error = ();
+
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        Ok(match value {
+            '0' => Key::Zero,
+            '1' => Key::One,
+            '2' => Key::Two,
+            '3' => Key::Three,
+            '4' => Key::Four,
+            '5' => Key::Five,
+            '6' => Key::Six,
+            '7' => Key::Seven,
+            '8' => Key::Eight,
+            '9' => Key::Nine,
+            'A' => Key::Activate,
+            _ => return Err(()),
+        })
+    }
+}
+
+impl TryFrom<Key> for usize {
+    type Error = ();
+
+    fn try_from(value: Key) -> Result<Self, Self::Error> {
+        Ok(match value {
+            Key::Zero => 0,
+            Key::One => 1,
+            Key::Two => 2,
+            Key::Three => 3,
+            Key::Four => 4,
+            Key::Five => 5,
+            Key::Six => 6,
+            Key::Seven => 7,
+            Key::Eight => 8,
+            Key::Nine => 9,
+            Key::Activate => return Err(()),
+        })
+    }
+}
+
+fn get_directional_commands_between_directional_commands(
+    a: &DirectionalCommand,
+    b: &DirectionalCommand,
+) -> Vec<DirectionalCommand> {
+    match a {
+        DirectionalCommand::Activate => match b {
+            DirectionalCommand::Activate => return vec![],
+            DirectionalCommand::Right => return vec![DirectionalCommand::Down],
+            DirectionalCommand::Up => return vec![DirectionalCommand::Left],
+            DirectionalCommand::Down => {
+                return vec![DirectionalCommand::Down, DirectionalCommand::Left]
+            }
+            DirectionalCommand::Left => {
+                return vec![
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Left,
+                    DirectionalCommand::Left,
+                ]
+            }
+        },
+        DirectionalCommand::Right => match b {
+            DirectionalCommand::Activate => {
+                return get_directional_commands_between_directional_commands(b, a)
+                    .into_iter()
+                    .map(DirectionalCommand::reverse)
+                    .collect()
+            }
+            DirectionalCommand::Right => return vec![],
+            DirectionalCommand::Down => return vec![DirectionalCommand::Left],
+            DirectionalCommand::Up => {
+                return vec![DirectionalCommand::Left, DirectionalCommand::Up]
+            }
+            DirectionalCommand::Left => {
+                return vec![DirectionalCommand::Left, DirectionalCommand::Left]
+            }
+        },
+        DirectionalCommand::Down => match b {
+            DirectionalCommand::Activate | DirectionalCommand::Right => {
+                return get_directional_commands_between_directional_commands(b, a)
+                    .into_iter()
+                    .map(DirectionalCommand::reverse)
+                    .collect()
+            }
+            DirectionalCommand::Down => return vec![],
+            DirectionalCommand::Up => return vec![DirectionalCommand::Up],
+            DirectionalCommand::Left => return vec![DirectionalCommand::Left],
+        },
+        DirectionalCommand::Up => match b {
+            DirectionalCommand::Activate | DirectionalCommand::Right | DirectionalCommand::Down => {
+                return get_directional_commands_between_directional_commands(b, a)
+                    .into_iter()
+                    .map(DirectionalCommand::reverse)
+                    .collect()
+            }
+            DirectionalCommand::Up => return vec![],
+            DirectionalCommand::Left => {
+                return vec![DirectionalCommand::Down, DirectionalCommand::Left]
+            }
+        },
+        DirectionalCommand::Left => match b {
+            DirectionalCommand::Activate
+            | DirectionalCommand::Right
+            | DirectionalCommand::Down
+            | DirectionalCommand::Up => {
+                return get_directional_commands_between_directional_commands(b, a)
+                    .into_iter()
+                    .map(DirectionalCommand::reverse)
+                    .collect()
+            }
+            DirectionalCommand::Left => return vec![],
+        },
+    }
+}
+
+fn get_directional_commands_between_keys(a: &Key, b: &Key) -> Vec<DirectionalCommand> {
+    match a {
+        &Key::Zero => match b {
+            &Key::Zero => return vec![],
+            &Key::One => return vec![DirectionalCommand::Up, DirectionalCommand::Left],
+            &Key::Two => return vec![DirectionalCommand::Up],
+            &Key::Three => return vec![DirectionalCommand::Up, DirectionalCommand::Right],
+            &Key::Activate => return vec![DirectionalCommand::Right],
+            _ => {
+                // Move to two
+                let mut result = vec![DirectionalCommand::Up];
+                result.append(&mut get_directional_commands_between_keys(&Key::Two, b));
+                result
+            }
+        },
+        &Key::One => match b {
+            &Key::Zero => get_directional_commands_between_keys(b, a)
+                .into_iter()
+                .map(DirectionalCommand::reverse)
+                .collect(),
+            &Key::One => return vec![],
+            &Key::Two => return vec![DirectionalCommand::Right],
+            &Key::Three => return vec![DirectionalCommand::Right, DirectionalCommand::Right],
+            &Key::Four => return vec![DirectionalCommand::Up],
+            &Key::Seven => return vec![DirectionalCommand::Up, DirectionalCommand::Up],
+            _ => {
+                // Move to two
+                let mut result = vec![DirectionalCommand::Right];
+                result.append(&mut get_directional_commands_between_keys(&Key::Two, b));
+                result
+            }
+        },
+        &Key::Two => match b {
+            &Key::Zero | &Key::One => get_directional_commands_between_keys(b, a)
+                .into_iter()
+                .map(DirectionalCommand::reverse)
+                .collect(),
+            &Key::Two => return vec![],
+            &Key::Three => return vec![DirectionalCommand::Right],
+            &Key::Four => return vec![DirectionalCommand::Up, DirectionalCommand::Left],
+            &Key::Five => return vec![DirectionalCommand::Up],
+            &Key::Six => return vec![DirectionalCommand::Up, DirectionalCommand::Right],
+            &Key::Activate => {
+                // Move to zero
+                let mut result = vec![DirectionalCommand::Down];
+                result.append(&mut get_directional_commands_between_keys(&Key::Zero, b));
+                result
+            }
+            _ => {
+                // Move to five
+                let mut result = vec![DirectionalCommand::Up];
+                result.append(&mut get_directional_commands_between_keys(&Key::Five, b));
+                result
+            }
+        },
+        &Key::Three => match b {
+            &Key::Zero | &Key::One | &Key::Two => get_directional_commands_between_keys(b, a)
+                .into_iter()
+                .map(DirectionalCommand::reverse)
+                .collect(),
+            &Key::Six => return vec![DirectionalCommand::Up],
+            &Key::Nine => return vec![DirectionalCommand::Up, DirectionalCommand::Up],
+            &Key::Activate => return vec![DirectionalCommand::Down],
+            _ => {
+                // Move to two
+                let mut result = vec![DirectionalCommand::Left];
+                result.append(&mut get_directional_commands_between_keys(&Key::Two, b));
+                result
+            }
+        },
+        &Key::Four => match b {
+            &Key::Zero | &Key::One | &Key::Two | &Key::Three => {
+                get_directional_commands_between_keys(b, a)
+                    .into_iter()
+                    .map(DirectionalCommand::reverse)
+                    .collect()
+            }
+            &Key::Four => return vec![],
+            &Key::Five => return vec![DirectionalCommand::Right],
+            &Key::Seven => return vec![DirectionalCommand::Up],
+            _ => {
+                // Move to five
+                let mut result = vec![DirectionalCommand::Right];
+                result.append(&mut get_directional_commands_between_keys(&Key::Five, b));
+                result
+            }
+        },
+        &Key::Five => match b {
+            &Key::Zero | &Key::One | &Key::Two | &Key::Three | &Key::Four => {
+                get_directional_commands_between_keys(b, a)
+                    .into_iter()
+                    .map(DirectionalCommand::reverse)
+                    .collect()
+            }
+            &Key::Five => return vec![],
+            &Key::Six => return vec![DirectionalCommand::Right],
+            &Key::Activate => {
+                // Move to two
+                let mut result = vec![DirectionalCommand::Down];
+                result.append(&mut get_directional_commands_between_keys(&Key::Two, b));
+                result
+            }
+            _ => {
+                // Move to eight
+                let mut result = vec![DirectionalCommand::Up];
+                result.append(&mut get_directional_commands_between_keys(&Key::Eight, b));
+                result
+            }
+        },
+        &Key::Six => match b {
+            &Key::Zero | &Key::One | &Key::Two | &Key::Three | &Key::Four | &Key::Five => {
+                get_directional_commands_between_keys(b, a)
+                    .into_iter()
+                    .map(DirectionalCommand::reverse)
+                    .collect()
+            }
+            &Key::Six => return vec![],
+            &Key::Nine => return vec![DirectionalCommand::Up],
+            &Key::Activate => return vec![DirectionalCommand::Down, DirectionalCommand::Down],
+            _ => {
+                // Move to five
+                let mut result = vec![DirectionalCommand::Left];
+                result.append(&mut get_directional_commands_between_keys(&Key::Five, b));
+                result
+            }
+        },
+        &Key::Seven => match b {
+            &Key::Zero
+            | &Key::One
+            | &Key::Two
+            | &Key::Three
+            | &Key::Four
+            | &Key::Five
+            | &Key::Six => get_directional_commands_between_keys(b, a)
+                .into_iter()
+                .map(DirectionalCommand::reverse)
+                .collect(),
+            &Key::Seven => return vec![],
+            &Key::Eight => return vec![DirectionalCommand::Right],
+            &Key::Nine => return vec![DirectionalCommand::Right, DirectionalCommand::Right],
+            &Key::Activate => {
+                // Move to eight
+                let mut result = vec![DirectionalCommand::Right];
+                result.append(&mut get_directional_commands_between_keys(&Key::Eight, b));
+                result
+            }
+        },
+        &Key::Eight => match b {
+            &Key::Zero
+            | &Key::One
+            | &Key::Two
+            | &Key::Three
+            | &Key::Four
+            | &Key::Five
+            | &Key::Six
+            | &Key::Seven => get_directional_commands_between_keys(b, a)
+                .into_iter()
+                .map(DirectionalCommand::reverse)
+                .collect(),
+            &Key::Eight => return vec![],
+            &Key::Nine => return vec![DirectionalCommand::Right],
+            &Key::Activate => {
+                // Move to five
+                let mut result = vec![DirectionalCommand::Down];
+                result.append(&mut get_directional_commands_between_keys(&Key::Five, b));
+                result
+            }
+        },
+        &Key::Nine => match b {
+            &Key::Zero
+            | &Key::One
+            | &Key::Two
+            | &Key::Three
+            | &Key::Four
+            | &Key::Five
+            | &Key::Six
+            | &Key::Seven
+            | &Key::Eight => get_directional_commands_between_keys(b, a)
+                .into_iter()
+                .map(DirectionalCommand::reverse)
+                .collect(),
+            &Key::Nine => return vec![],
+            &Key::Activate => {
+                return vec![
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Down,
+                ]
+            }
+        },
+        &Key::Activate => get_directional_commands_between_keys(b, a)
+            .into_iter()
+            .map(DirectionalCommand::reverse)
+            .collect(),
+    }
+}
+
+fn get_directional_commands_for_keycode(code: &[Key], start: &Key) -> Vec<DirectionalCommand> {
+    let mut result = vec![];
+
+    result.append(&mut get_directional_commands_between_keys(start, &code[0]));
+    result.push(DirectionalCommand::Activate);
+
+    for i in 0..code.len() - 1 {
+        let a = &code[i];
+        let b = &code[i + 1];
+
+        result.append(&mut get_directional_commands_between_keys(a, b));
+        result.push(DirectionalCommand::Activate);
+    }
+
+    result
+}
+
+fn encode_directional_commands(
+    commands: &[DirectionalCommand],
+    start: &DirectionalCommand,
+) -> Vec<DirectionalCommand> {
+    let mut result = vec![];
+
+    result.append(&mut get_directional_commands_between_directional_commands(
+        start,
+        &commands[0],
+    ));
+    result.push(DirectionalCommand::Activate);
+
+    for i in 0..commands.len() - 1 {
+        let a = &commands[i];
+        let b = &commands[i + 1];
+
+        result.append(&mut get_directional_commands_between_directional_commands(
+            a, b,
+        ));
+        result.push(DirectionalCommand::Activate);
+    }
+
+    result
+}
+
+fn encode_code(code: &[Key], additional_passes: usize) -> Vec<DirectionalCommand> {
+    let mut result = get_directional_commands_for_keycode(code, &Key::Activate);
+
+    let mut i = 0;
+    while i < additional_passes {
+        result = encode_directional_commands(&result, &DirectionalCommand::Activate);
+        i += 1;
+    }
+
+    result
+}
+
+fn calculate_checksum(code: &[Key]) -> usize {
+    let a = encode_code(code, 2).len();
+
+    let b: usize = code
+        .iter()
+        .filter_map(|key| {
+            if let Ok(value) = usize::try_from(*key) {
+                if value == 0 {
+                    return None;
+                }
+
+                return Some(value);
+            } else {
+                return None;
+            }
+        })
+        .map(|v| v.to_string())
+        .join("")
+        .parse()
+        .unwrap();
+
+    a * b
+}
+
+fn parse_keys(input: &str) -> Vec<Key> {
+    let mut result = vec![];
+
+    for c in input.trim().chars() {
+        result.push(Key::try_from(c).unwrap())
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -173,48 +451,134 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_example() {
-        let input = r#"
-###############
-#...#...#.....#
-#.#.#.#.#.###.#
-#S#...#.#.#...#
-#######.#.#.###
-#######.#.#...#
-#######.#.###.#
-###..E#...#...#
-###.#######.###
-#...###...#...#
-#.#####.#.###.#
-#.#...#.#.#...#
-#.#.#.#.#.#.###
-#...#...#...###
-###############
-        "#;
-
-        let map = Map::parse(input);
-
-        let (baseline, cheats) = find_cheats(&map);
-
-        assert_eq!(baseline, 84);
-
+    fn test_get_directional_commands_between_keys() {
         assert_eq!(
-            cheats,
-            [
-                (64, 1),
-                (40, 1),
-                (38, 1),
-                (36, 1),
-                (20, 1),
-                (12, 3),
-                (10, 2),
-                (8, 4),
-                (6, 2),
-                (4, 14),
-                (2, 14)
+            get_directional_commands_between_keys(&Key::Activate, &Key::Zero),
+            vec![DirectionalCommand::Left]
+        );
+        assert_eq!(
+            get_directional_commands_between_keys(&Key::Zero, &Key::Two),
+            vec![DirectionalCommand::Up]
+        );
+        assert_eq!(
+            get_directional_commands_between_keys(&Key::Two, &Key::Nine),
+            vec![
+                DirectionalCommand::Up,
+                DirectionalCommand::Up,
+                DirectionalCommand::Right,
             ]
-            .into_iter()
-            .collect::<HashMap<usize, usize>>()
-        )
+        );
+        assert_eq!(
+            get_directional_commands_between_keys(&Key::Nine, &Key::Activate),
+            vec![
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+                DirectionalCommand::Down
+            ]
+        );
+        assert_eq!(
+            get_directional_commands_between_keys(&Key::Activate, &Key::Six),
+            vec![DirectionalCommand::Up, DirectionalCommand::Up]
+        );
+        assert_eq!(
+            get_directional_commands_between_keys(&Key::Activate, &Key::Four),
+            vec![
+                DirectionalCommand::Left,
+                DirectionalCommand::Up,
+                DirectionalCommand::Up,
+                DirectionalCommand::Left
+            ]
+        );
+        assert_eq!(
+            get_directional_commands_between_keys(&Key::Activate, &Key::Eight),
+            vec![
+                DirectionalCommand::Up,
+                DirectionalCommand::Up,
+                DirectionalCommand::Up,
+                DirectionalCommand::Left,
+            ]
+        );
+        assert_eq!(
+            get_directional_commands_between_keys(&Key::Seven, &Key::Nine),
+            vec![DirectionalCommand::Right, DirectionalCommand::Right]
+        );
+        assert_eq!(
+            get_directional_commands_between_keys(&Key::Four, &Key::Six),
+            vec![DirectionalCommand::Right, DirectionalCommand::Right]
+        );
+        assert_eq!(
+            get_directional_commands_between_keys(&Key::One, &Key::Three),
+            vec![DirectionalCommand::Right, DirectionalCommand::Right]
+        );
+    }
+
+    #[test]
+    fn test_get_directional_commands_for_keycode() {
+        assert_eq!(
+            get_directional_commands_for_keycode(
+                &[Key::Zero, Key::Two, Key::Nine, Key::Activate],
+                &Key::Activate
+            ),
+            vec![
+                DirectionalCommand::Left,
+                DirectionalCommand::Activate,
+                DirectionalCommand::Up,
+                DirectionalCommand::Activate,
+                DirectionalCommand::Up,
+                DirectionalCommand::Up,
+                DirectionalCommand::Right,
+                DirectionalCommand::Activate,
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+                DirectionalCommand::Activate
+            ]
+        );
+    }
+
+    #[test]
+    fn test_get_directional_commands_between_directional_commands() {
+        assert_eq!(
+            get_directional_commands_between_directional_commands(
+                &DirectionalCommand::Activate,
+                &DirectionalCommand::Up
+            ),
+            vec![DirectionalCommand::Left]
+        );
+        assert_eq!(
+            get_directional_commands_between_directional_commands(
+                &DirectionalCommand::Activate,
+                &DirectionalCommand::Right
+            ),
+            vec![DirectionalCommand::Down]
+        );
+        assert_eq!(
+            get_directional_commands_between_directional_commands(
+                &DirectionalCommand::Left,
+                &DirectionalCommand::Right
+            ),
+            vec![DirectionalCommand::Right, DirectionalCommand::Right]
+        );
+    }
+
+    #[test]
+    fn test_encode_code() {
+        assert_eq!(
+            encode_code(&[Key::Zero, Key::Two, Key::Nine, Key::Activate], 1).len(),
+            28
+        );
+        assert_eq!(
+            encode_code(&[Key::Zero, Key::Two, Key::Nine, Key::Activate], 2).len(),
+            68
+        );
+    }
+
+    #[test]
+    fn test_calculate_checksum() {
+        assert_eq!(calculate_checksum(&parse_keys("029A")), 68 * 29);
+        assert_eq!(calculate_checksum(&parse_keys("379A")), 64 * 379);
+        assert_eq!(calculate_checksum(&parse_keys("456A")), 64 * 456);
+        assert_eq!(calculate_checksum(&parse_keys("179A")), 68 * 179);
+        assert_eq!(calculate_checksum(&parse_keys("980A")), 60 * 980);
     }
 }
