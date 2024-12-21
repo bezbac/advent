@@ -10,7 +10,7 @@ fn main() {
     println!("Result (Part 1): {result}");
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum DirectionalCommand {
     Up,
     Down,
@@ -452,63 +452,91 @@ mod tests {
 
     #[test]
     fn test_get_directional_commands_between_keys() {
-        assert_eq!(
-            get_directional_commands_between_keys(&Key::Activate, &Key::Zero),
-            vec![DirectionalCommand::Left]
-        );
-        assert_eq!(
-            get_directional_commands_between_keys(&Key::Zero, &Key::Two),
-            vec![DirectionalCommand::Up]
-        );
-        assert_eq!(
-            get_directional_commands_between_keys(&Key::Two, &Key::Nine),
+        fn dir_command_check(a: Key, b: Key, expected: Vec<DirectionalCommand>) {
+            let mut res = get_directional_commands_between_keys(&a, &b);
+            let mut expected = expected;
+            res.sort();
+            expected.sort();
+            assert_eq!(res, expected);
+        }
+
+        dir_command_check(Key::Zero, Key::Two, vec![DirectionalCommand::Up]);
+        dir_command_check(
+            Key::Two,
+            Key::Nine,
             vec![
                 DirectionalCommand::Up,
                 DirectionalCommand::Up,
                 DirectionalCommand::Right,
-            ]
+            ],
         );
-        assert_eq!(
-            get_directional_commands_between_keys(&Key::Nine, &Key::Activate),
+        dir_command_check(
+            Key::Nine,
+            Key::Activate,
             vec![
                 DirectionalCommand::Down,
                 DirectionalCommand::Down,
-                DirectionalCommand::Down
-            ]
+                DirectionalCommand::Down,
+            ],
         );
-        assert_eq!(
-            get_directional_commands_between_keys(&Key::Activate, &Key::Six),
-            vec![DirectionalCommand::Up, DirectionalCommand::Up]
+        dir_command_check(
+            Key::Activate,
+            Key::Six,
+            vec![DirectionalCommand::Up, DirectionalCommand::Up],
         );
-        assert_eq!(
-            get_directional_commands_between_keys(&Key::Activate, &Key::Four),
+        dir_command_check(
+            Key::Activate,
+            Key::Four,
             vec![
                 DirectionalCommand::Left,
                 DirectionalCommand::Up,
                 DirectionalCommand::Up,
-                DirectionalCommand::Left
-            ]
+                DirectionalCommand::Left,
+            ],
         );
-        assert_eq!(
-            get_directional_commands_between_keys(&Key::Activate, &Key::Eight),
+        dir_command_check(
+            Key::Activate,
+            Key::Eight,
             vec![
                 DirectionalCommand::Up,
                 DirectionalCommand::Up,
                 DirectionalCommand::Up,
                 DirectionalCommand::Left,
-            ]
+            ],
         );
-        assert_eq!(
-            get_directional_commands_between_keys(&Key::Seven, &Key::Nine),
-            vec![DirectionalCommand::Right, DirectionalCommand::Right]
+        dir_command_check(
+            Key::Seven,
+            Key::Nine,
+            vec![DirectionalCommand::Right, DirectionalCommand::Right],
         );
-        assert_eq!(
-            get_directional_commands_between_keys(&Key::Four, &Key::Six),
-            vec![DirectionalCommand::Right, DirectionalCommand::Right]
+        dir_command_check(
+            Key::Four,
+            Key::Six,
+            vec![DirectionalCommand::Right, DirectionalCommand::Right],
         );
-        assert_eq!(
-            get_directional_commands_between_keys(&Key::One, &Key::Three),
-            vec![DirectionalCommand::Right, DirectionalCommand::Right]
+        dir_command_check(
+            Key::One,
+            Key::Three,
+            vec![DirectionalCommand::Right, DirectionalCommand::Right],
+        );
+        dir_command_check(
+            Key::One,
+            Key::Seven,
+            vec![DirectionalCommand::Up, DirectionalCommand::Up],
+        );
+        dir_command_check(
+            Key::Seven,
+            Key::Nine,
+            vec![DirectionalCommand::Right, DirectionalCommand::Right],
+        );
+        dir_command_check(
+            Key::Nine,
+            Key::Activate,
+            vec![
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+            ],
         );
     }
 
@@ -559,26 +587,100 @@ mod tests {
             ),
             vec![DirectionalCommand::Right, DirectionalCommand::Right]
         );
+        assert_eq!(
+            get_directional_commands_between_directional_commands(
+                &DirectionalCommand::Right,
+                &DirectionalCommand::Left
+            ),
+            vec![DirectionalCommand::Left, DirectionalCommand::Left]
+        );
+        assert_eq!(
+            get_directional_commands_between_directional_commands(
+                &DirectionalCommand::Up,
+                &DirectionalCommand::Right,
+            ),
+            vec![DirectionalCommand::Right, DirectionalCommand::Down]
+        );
+        assert_eq!(
+            get_directional_commands_between_directional_commands(
+                &DirectionalCommand::Left,
+                &DirectionalCommand::Up
+            ),
+            vec![DirectionalCommand::Up, DirectionalCommand::Right]
+        );
+        assert_eq!(
+            get_directional_commands_between_directional_commands(
+                &DirectionalCommand::Up,
+                &DirectionalCommand::Left
+            ),
+            vec![DirectionalCommand::Down, DirectionalCommand::Left]
+        );
+        assert_eq!(
+            get_directional_commands_between_directional_commands(
+                &DirectionalCommand::Activate,
+                &DirectionalCommand::Left
+            ),
+            vec![
+                DirectionalCommand::Down,
+                DirectionalCommand::Left,
+                DirectionalCommand::Left
+            ]
+        );
+    }
+
+    #[test]
+    fn test_encode_directional_commands() {
+        assert_eq!(
+            encode_directional_commands(
+                &[
+                    DirectionalCommand::Left,
+                    DirectionalCommand::Up,
+                    DirectionalCommand::Left,
+                    DirectionalCommand::Activate,
+                    DirectionalCommand::Up,
+                    DirectionalCommand::Up,
+                    DirectionalCommand::Activate,
+                    DirectionalCommand::Right,
+                    DirectionalCommand::Right,
+                    DirectionalCommand::Activate,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Activate,
+                ],
+                &DirectionalCommand::Activate
+            )
+            .len(),
+            32
+        )
     }
 
     #[test]
     fn test_encode_code() {
-        assert_eq!(
-            encode_code(&[Key::Zero, Key::Two, Key::Nine, Key::Activate], 1).len(),
-            28
-        );
-        assert_eq!(
-            encode_code(&[Key::Zero, Key::Two, Key::Nine, Key::Activate], 2).len(),
-            68
-        );
+        assert_eq!(encode_code(&parse_keys("029A"), 0).len(), 12);
+        assert_eq!(encode_code(&parse_keys("029A"), 1).len(), 28);
+        assert_eq!(encode_code(&parse_keys("029A"), 2).len(), 68);
+
+        assert_eq!(encode_code(&parse_keys("980A"), 0).len(), 12);
+        assert_eq!(encode_code(&parse_keys("980A"), 1).len(), 32);
+        assert_eq!(encode_code(&parse_keys("980A"), 2).len(), 60);
+
+        assert_eq!(encode_code(&parse_keys("179A"), 0).len(), 14);
+        assert_eq!(encode_code(&parse_keys("179A"), 2).len(), 68);
+
+        assert_eq!(encode_code(&parse_keys("456A"), 0).len(), 12);
+        assert_eq!(encode_code(&parse_keys("456A"), 2).len(), 64);
+
+        assert_eq!(encode_code(&parse_keys("379A"), 0).len(), 13);
+        assert_eq!(encode_code(&parse_keys("379A"), 2).len(), 64);
     }
 
     #[test]
     fn test_calculate_checksum() {
         assert_eq!(calculate_checksum(&parse_keys("029A")), 68 * 29);
-        assert_eq!(calculate_checksum(&parse_keys("379A")), 64 * 379);
-        assert_eq!(calculate_checksum(&parse_keys("456A")), 64 * 456);
-        assert_eq!(calculate_checksum(&parse_keys("179A")), 68 * 179);
         assert_eq!(calculate_checksum(&parse_keys("980A")), 60 * 980);
+        assert_eq!(calculate_checksum(&parse_keys("179A")), 68 * 179);
+        assert_eq!(calculate_checksum(&parse_keys("456A")), 64 * 456);
+        assert_eq!(calculate_checksum(&parse_keys("379A")), 64 * 379);
     }
 }
