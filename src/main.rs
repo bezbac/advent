@@ -1,4 +1,4 @@
-use std::fs;
+use std::{collections::HashMap, fs};
 
 use itertools::Itertools;
 
@@ -10,7 +10,7 @@ fn main() {
     println!("Result (Part 1): {result}");
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum DirectionalCommand {
     Up,
     Down,
@@ -91,16 +91,16 @@ fn get_directional_commands_between_directional_commands(
     a: &DirectionalCommand,
     b: &DirectionalCommand,
 ) -> Vec<DirectionalCommand> {
-    match a {
+    let mut result: Vec<DirectionalCommand> = match a {
         DirectionalCommand::Activate => match b {
-            DirectionalCommand::Activate => return vec![],
-            DirectionalCommand::Right => return vec![DirectionalCommand::Down],
-            DirectionalCommand::Up => return vec![DirectionalCommand::Left],
+            DirectionalCommand::Activate => vec![],
+            DirectionalCommand::Right => vec![DirectionalCommand::Down],
+            DirectionalCommand::Up => vec![DirectionalCommand::Left],
             DirectionalCommand::Down => {
-                return vec![DirectionalCommand::Down, DirectionalCommand::Left]
+                vec![DirectionalCommand::Down, DirectionalCommand::Left]
             }
             DirectionalCommand::Left => {
-                return vec![
+                vec![
                     DirectionalCommand::Down,
                     DirectionalCommand::Left,
                     DirectionalCommand::Left,
@@ -109,60 +109,62 @@ fn get_directional_commands_between_directional_commands(
         },
         DirectionalCommand::Right => match b {
             DirectionalCommand::Activate => {
-                return get_directional_commands_between_directional_commands(b, a)
+                get_directional_commands_between_directional_commands(b, a)
                     .into_iter()
                     .map(DirectionalCommand::reverse)
                     .collect()
             }
-            DirectionalCommand::Right => return vec![],
-            DirectionalCommand::Down => return vec![DirectionalCommand::Left],
+            DirectionalCommand::Right => vec![],
+            DirectionalCommand::Down => vec![DirectionalCommand::Left],
             DirectionalCommand::Up => {
-                return vec![DirectionalCommand::Left, DirectionalCommand::Up]
+                vec![DirectionalCommand::Left, DirectionalCommand::Up]
             }
             DirectionalCommand::Left => {
-                return vec![DirectionalCommand::Left, DirectionalCommand::Left]
+                vec![DirectionalCommand::Left, DirectionalCommand::Left]
             }
         },
         DirectionalCommand::Down => match b {
             DirectionalCommand::Activate | DirectionalCommand::Right => {
-                return get_directional_commands_between_directional_commands(b, a)
+                get_directional_commands_between_directional_commands(b, a)
                     .into_iter()
                     .map(DirectionalCommand::reverse)
                     .collect()
             }
-            DirectionalCommand::Down => return vec![],
-            DirectionalCommand::Up => return vec![DirectionalCommand::Up],
-            DirectionalCommand::Left => return vec![DirectionalCommand::Left],
+            DirectionalCommand::Down => vec![],
+            DirectionalCommand::Up => vec![DirectionalCommand::Up],
+            DirectionalCommand::Left => vec![DirectionalCommand::Left],
         },
         DirectionalCommand::Up => match b {
             DirectionalCommand::Activate | DirectionalCommand::Right | DirectionalCommand::Down => {
-                return get_directional_commands_between_directional_commands(b, a)
+                get_directional_commands_between_directional_commands(b, a)
                     .into_iter()
                     .map(DirectionalCommand::reverse)
                     .collect()
             }
-            DirectionalCommand::Up => return vec![],
+            DirectionalCommand::Up => vec![],
             DirectionalCommand::Left => {
-                return vec![DirectionalCommand::Down, DirectionalCommand::Left]
+                vec![DirectionalCommand::Down, DirectionalCommand::Left]
             }
         },
         DirectionalCommand::Left => match b {
             DirectionalCommand::Activate
             | DirectionalCommand::Right
             | DirectionalCommand::Down
-            | DirectionalCommand::Up => {
-                return get_directional_commands_between_directional_commands(b, a)
-                    .into_iter()
-                    .map(DirectionalCommand::reverse)
-                    .collect()
-            }
-            DirectionalCommand::Left => return vec![],
+            | DirectionalCommand::Up => get_directional_commands_between_directional_commands(b, a)
+                .into_iter()
+                .map(DirectionalCommand::reverse)
+                .collect(),
+            DirectionalCommand::Left => vec![],
         },
-    }
+    };
+
+    result.sort();
+
+    return result;
 }
 
 fn get_directional_commands_between_keys(a: &Key, b: &Key) -> Vec<DirectionalCommand> {
-    match a {
+    let mut result = match a {
         &Key::Zero => match b {
             &Key::Zero => return vec![],
             &Key::One => return vec![DirectionalCommand::Up, DirectionalCommand::Left],
@@ -355,7 +357,11 @@ fn get_directional_commands_between_keys(a: &Key, b: &Key) -> Vec<DirectionalCom
             .into_iter()
             .map(DirectionalCommand::reverse)
             .collect(),
-    }
+    };
+
+    result.sort();
+
+    return result;
 }
 
 fn get_directional_commands_for_keycode(code: &[Key], start: &Key) -> Vec<DirectionalCommand> {
@@ -400,12 +406,96 @@ fn encode_directional_commands(
     result
 }
 
+fn get_permutations<T: Clone>(arr: &[T]) -> Vec<Vec<T>> {
+    // Base case: if array has only one element, return it wrapped in a vec
+    if arr.len() <= 1 {
+        return vec![arr.to_vec()];
+    }
+
+    let mut result = Vec::new();
+
+    // Try each element as the first element
+    for i in 0..arr.len() {
+        // Create a vector without the current element
+        let mut remaining = arr.to_vec();
+        let current = remaining.remove(i);
+
+        // Recursively get permutations of the remaining elements
+        for mut perm in get_permutations(&remaining) {
+            // Add the current element to the front
+            perm.insert(0, current.clone());
+            result.push(perm);
+        }
+    }
+
+    result
+}
+
+fn get_directional_commands_permutations(
+    commands: &[DirectionalCommand],
+) -> Vec<Vec<DirectionalCommand>> {
+    let mut parts = vec![];
+    let mut current_part = vec![];
+    for c in commands {
+        if c == &DirectionalCommand::Activate {
+            parts.push(current_part.clone());
+            current_part = vec![];
+            continue;
+        }
+
+        current_part.push(*c);
+    }
+
+    let mut inputs: Vec<Vec<DirectionalCommand>> = get_permutations(&parts[0]);
+    for part in &parts[1..] {
+        inputs = inputs
+            .into_iter()
+            .cartesian_product(get_permutations(&part))
+            .map(|(a, b)| {
+                let mut a: Vec<DirectionalCommand> = a;
+                let mut b = b;
+                a.push(DirectionalCommand::Activate);
+                a.append(&mut b);
+                a
+            })
+            .collect()
+    }
+
+    inputs = inputs
+        .into_iter()
+        .map(|mut input| {
+            input.push(DirectionalCommand::Activate);
+            input
+        })
+        .collect();
+
+    inputs = inputs.into_iter().unique().collect();
+
+    inputs
+}
+
+fn shortest_encode_directional_commands(
+    commands: &[DirectionalCommand],
+) -> Vec<DirectionalCommand> {
+    let inputs = get_directional_commands_permutations(&commands);
+
+    let mut encoded: Vec<_> = inputs
+        .into_iter()
+        .unique()
+        .map(|input| encode_directional_commands(&input, &DirectionalCommand::Activate))
+        .collect();
+
+    encoded.sort_by(|a, b| a.len().cmp(&b.len()));
+
+    encoded[0].clone()
+}
+
 fn encode_code(code: &[Key], additional_passes: usize) -> Vec<DirectionalCommand> {
     let mut result = get_directional_commands_for_keycode(code, &Key::Activate);
 
     let mut i = 0;
     while i < additional_passes {
-        result = encode_directional_commands(&result, &DirectionalCommand::Activate);
+        result = shortest_encode_directional_commands(&result);
         i += 1;
     }
 
@@ -541,6 +631,61 @@ mod tests {
     }
 
     #[test]
+    fn test_get_directional_commands_permutations() {
+        assert_eq!(
+            get_directional_commands_permutations(&[
+                DirectionalCommand::Activate,
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+                DirectionalCommand::Activate
+            ]),
+            vec![vec![
+                DirectionalCommand::Activate,
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+                DirectionalCommand::Activate
+            ]]
+        );
+
+        assert_eq!(
+            get_directional_commands_permutations(&[
+                DirectionalCommand::Activate,
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+                DirectionalCommand::Down,
+                DirectionalCommand::Activate,
+                DirectionalCommand::Down,
+                DirectionalCommand::Right,
+                DirectionalCommand::Activate
+            ]),
+            vec![
+                vec![
+                    DirectionalCommand::Activate,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Activate,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Right,
+                    DirectionalCommand::Activate
+                ],
+                vec![
+                    DirectionalCommand::Activate,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Activate,
+                    DirectionalCommand::Right,
+                    DirectionalCommand::Down,
+                    DirectionalCommand::Activate
+                ]
+            ]
+        );
+    }
+
+    #[test]
     fn test_get_directional_commands_for_keycode() {
         assert_eq!(
             get_directional_commands_for_keycode(
@@ -599,7 +744,7 @@ mod tests {
                 &DirectionalCommand::Up,
                 &DirectionalCommand::Right,
             ),
-            vec![DirectionalCommand::Right, DirectionalCommand::Down]
+            vec![DirectionalCommand::Down, DirectionalCommand::Right]
         );
         assert_eq!(
             get_directional_commands_between_directional_commands(
@@ -626,33 +771,14 @@ mod tests {
                 DirectionalCommand::Left
             ]
         );
-    }
 
-    #[test]
-    fn test_encode_directional_commands() {
         assert_eq!(
-            encode_directional_commands(
-                &[
-                    DirectionalCommand::Left,
-                    DirectionalCommand::Up,
-                    DirectionalCommand::Left,
-                    DirectionalCommand::Activate,
-                    DirectionalCommand::Up,
-                    DirectionalCommand::Up,
-                    DirectionalCommand::Activate,
-                    DirectionalCommand::Right,
-                    DirectionalCommand::Right,
-                    DirectionalCommand::Activate,
-                    DirectionalCommand::Down,
-                    DirectionalCommand::Down,
-                    DirectionalCommand::Down,
-                    DirectionalCommand::Activate,
-                ],
-                &DirectionalCommand::Activate
-            )
-            .len(),
-            32
-        )
+            get_directional_commands_between_directional_commands(
+                &DirectionalCommand::Activate,
+                &DirectionalCommand::Up
+            ),
+            vec![DirectionalCommand::Left]
+        );
     }
 
     #[test]
@@ -662,7 +788,7 @@ mod tests {
         assert_eq!(encode_code(&parse_keys("029A"), 2).len(), 68);
 
         assert_eq!(encode_code(&parse_keys("980A"), 0).len(), 12);
-        assert_eq!(encode_code(&parse_keys("980A"), 1).len(), 32);
+        assert_eq!(encode_code(&parse_keys("980A"), 1).len(), 26);
         assert_eq!(encode_code(&parse_keys("980A"), 2).len(), 60);
 
         assert_eq!(encode_code(&parse_keys("179A"), 0).len(), 14);
@@ -671,7 +797,7 @@ mod tests {
         assert_eq!(encode_code(&parse_keys("456A"), 0).len(), 12);
         assert_eq!(encode_code(&parse_keys("456A"), 2).len(), 64);
 
-        assert_eq!(encode_code(&parse_keys("379A"), 0).len(), 13);
+        assert_eq!(encode_code(&parse_keys("379A"), 0).len(), 14);
         assert_eq!(encode_code(&parse_keys("379A"), 2).len(), 64);
     }
 
