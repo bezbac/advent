@@ -67,7 +67,7 @@ impl Map {
     fn find_shortest_paths(&self) -> Option<(Vec<Vec<(usize, usize)>>, usize)> {
         let start = self.start;
         let end = self.end;
-        let result = astar_bag_collect(
+        astar_bag_collect(
             &start,
             |&(x, y)| {
                 [
@@ -106,13 +106,11 @@ impl Map {
                     .sqrt() as usize
             },
             |position| position == &end,
-        );
-
-        result
+        )
     }
 }
 
-fn find_cheats(map: Map) -> (usize, HashMap<usize, usize>) {
+fn find_cheats(map: &Map) -> (usize, HashMap<usize, usize>) {
     let baseline = map.find_shortest_paths();
 
     let baseline = baseline.unwrap().1;
@@ -120,7 +118,6 @@ fn find_cheats(map: Map) -> (usize, HashMap<usize, usize>) {
     let results: Vec<(usize, usize)> = (0..map.height())
         .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
         .filter(|&(x, y)| map.tiles[y][x] == Tile::Wall)
-        .into_iter()
         .par_bridge()
         .filter_map(|(x, y)| {
             let mut derived = map.clone();
@@ -128,9 +125,7 @@ fn find_cheats(map: Map) -> (usize, HashMap<usize, usize>) {
 
             let paths = derived.find_shortest_paths();
 
-            let Some((paths, cost)) = paths else {
-                return None;
-            };
+            let (paths, cost) = paths?;
 
             let saved_cost = baseline.abs_diff(cost);
 
@@ -157,7 +152,7 @@ fn main() {
 
     let map = Map::parse(&input);
 
-    let (_, cheats) = find_cheats(map);
+    let (_, cheats) = find_cheats(&map);
 
     let result: usize = cheats
         .iter()
@@ -166,7 +161,7 @@ fn main() {
                 return None;
             }
 
-            return Some(count);
+            Some(count)
         })
         .sum();
 
@@ -199,7 +194,7 @@ mod tests {
 
         let map = Map::parse(input);
 
-        let (baseline, cheats) = find_cheats(map);
+        let (baseline, cheats) = find_cheats(&map);
 
         assert_eq!(baseline, 84);
 
