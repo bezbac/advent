@@ -1,35 +1,25 @@
 use std::fs;
 
-use pathfinding::prelude::astar;
-
 struct ClawGame {
-    target: (usize, usize),
-    move_a: (usize, usize),
-    move_b: (usize, usize),
+    target: (isize, isize),
+    move_a: (isize, isize),
+    move_b: (isize, isize),
 }
 
 impl ClawGame {
-    fn min_token_cost(&self) -> Option<usize> {
-        let result = astar(
-            &(0, 0),
-            |&(x, y)| {
-                if x > self.target.0 || y > self.target.1 {
-                    return vec![];
-                }
+    fn min_token_cost(&self) -> Option<isize> {
+        let (ax, ay) = self.move_a;
+        let (bx, by) = self.move_b;
+        let (tx, ty) = self.target;
 
-                vec![
-                    ((x + self.move_a.0, y + self.move_a.1), 3),
-                    ((x + self.move_b.0, y + self.move_b.1), 1),
-                ]
-            },
-            |&(x, y)| {
-                ((self.target.0 as isize - x as isize).abs() as usize / self.move_a.0) * 3
-                    + ((self.target.1 as isize - y as isize).abs() as usize / self.move_a.1) * 3
-            },
-            |p| p.0 == self.target.0 && p.1 == self.target.1,
-        );
+        let nb = (ty * ax - tx * ay) / (by * ax - bx * ay);
+        let na = (tx - nb * bx) / ax;
 
-        result.map(|(_, cost)| cost)
+        if (ax * na + bx * nb, ay * na + by * nb) != (tx, ty) {
+            return None;
+        }
+
+        Some(na * 3 + nb)
     }
 
     fn parse(input: &str) -> Self {
@@ -99,6 +89,23 @@ fn main() {
     }
 
     println!("Result (Part 1): {result}");
+
+    let mut result = 0;
+
+    for game_input in input.trim().split("\n\n") {
+        let mut game = ClawGame::parse(game_input.trim());
+
+        game.target = (
+            game.target.0 + 10000000000000,
+            game.target.1 + 10000000000000,
+        );
+
+        if let Some(cost) = game.min_token_cost() {
+            result += cost;
+        }
+    }
+
+    println!("Result (Part 2): {result}");
 }
 
 #[cfg(test)]
