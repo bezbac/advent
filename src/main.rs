@@ -1,80 +1,19 @@
-use std::{collections::VecDeque, fs};
+use std::{collections::HashMap, fs};
 
-fn shift_right(row: &mut Vec<Option<Object>>, start: usize) -> bool {
-    match row[start] {
-        Some(Object::Box) => {}
-        Some(Object::Wall) => return false,
-        None => return true,
-    }
+use pathfinding::prelude::astar_bag_collect;
+use rayon::iter::{ParallelBridge, ParallelIterator};
 
-    let mut current: Option<Object> = row[start];
-    row[start] = None;
-
-    for i in start + 1..row.len() {
-        if current.is_none() {
-            break;
-        }
-
-        if row[i] == Some(Object::Wall) {
-            return false;
-        }
-
-        if row[i].is_none() {
-            row[i] = current;
-            current = None;
-            break;
-        }
-    }
-
-    if current.is_some() {
-        return false;
-    }
-
-    true
-}
-
-fn shift_left(row: &mut Vec<Option<Object>>, start: usize) -> bool {
-    match row[start] {
-        Some(Object::Box) => {}
-        Some(Object::Wall) => return false,
-        None => return true,
-    }
-
-    let mut current: Option<Object> = row[start];
-    row[start] = None;
-
-    for i in (0..start).rev() {
-        if current.is_none() {
-            break;
-        }
-
-        if row[i] == Some(Object::Wall) {
-            return false;
-        }
-
-        if row[i].is_none() {
-            row[i] = current;
-            current = None;
-            break;
-        }
-    }
-
-    if current.is_some() {
-        return false;
-    }
-
-    true
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Object {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tile {
+    Empty,
     Wall,
-    Box,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone)]
 struct Map {
-    tiles: Vec<Vec<Option<Object>>>,
+    tiles: Vec<Vec<Tile>>,
+    start: (usize, usize),
+    end: (usize, usize),
 }
 
 impl Map {
@@ -86,261 +25,150 @@ impl Map {
         self.tiles.len()
     }
 
-    fn print(&self, robot: Option<(usize, usize)>) {
-        for y in 0..self.height() {
-            for x in 0..self.width() {
-                if let Some(robot) = robot {
-                    if robot.0 == x && robot.1 == y {
-                        print!("@");
-                        continue;
-                    }
-                }
-
-                match self.tiles[y][x] {
-                    None => print!("."),
-                    Some(Object::Box) => print!("O"),
-                    Some(Object::Wall) => print!("#"),
-                }
-            }
-
-            println!();
-        }
-    }
-
-    fn parse(input: &str) -> (Self, (usize, usize)) {
+    fn parse(input: &str) -> Map {
         let input = input.trim();
 
-        let mut split = input.split("\n\n").into_iter();
-        let tile_input = split.next().unwrap();
-        let mut robot = (0, 0);
+        let mut tiles = Vec::new();
+        let mut start = None;
+        let mut end = None;
 
-        let mut tiles: Vec<Vec<Option<Object>>> = Vec::new();
+        for (y, row) in input.lines().enumerate() {
+            let mut row_tiles = Vec::new();
 
-        for (y, line) in tile_input.lines().enumerate() {
-            let mut row: Vec<Option<Object>> = Vec::new();
-
-            for (x, c) in line.chars().enumerate() {
+            for (x, c) in row.chars().enumerate() {
                 match c {
-                    '#' => row.push(Some(Object::Wall)),
-                    'O' => row.push(Some(Object::Box)),
-                    '@' => {
-                        row.push(None);
-                        robot = (x, y);
+                    '#' => {
+                        row_tiles.push(Tile::Wall);
                     }
-                    '.' => row.push(None),
-                    _ => panic!("Unknown character: {}", c),
+                    '.' => {
+                        row_tiles.push(Tile::Empty);
+                    }
+                    'S' => {
+                        row_tiles.push(Tile::Empty);
+                        start = Some((x, y));
+                    }
+                    'E' => {
+                        row_tiles.push(Tile::Empty);
+                        end = Some((x, y));
+                    }
+                    _ => panic!("Unexpected character"),
                 }
             }
 
-            tiles.push(row);
+            tiles.push(row_tiles);
         }
 
-        (Map { tiles }, robot)
+        let start = start.unwrap();
+        let end = end.unwrap();
+
+        Map { tiles, start, end }
     }
 
-    fn get_row(&self, index: usize) -> Vec<Option<Object>> {
-        self.tiles[index].clone()
-    }
+    fn find_shortest_paths(&self) -> Option<(Vec<Vec<(usize, usize)>>, usize)> {
+        let start = self.start;
+        let end = self.end;
+        let result = astar_bag_collect(
+            &start,
+            |&(x, y)| {
+                [
+                    (x as isize, y as isize - 1),
+                    (x as isize, y as isize + 1),
+                    (x as isize - 1, y as isize),
+                    (x as isize + 1, y as isize),
+                ]
+                .into_iter()
+                .filter_map(|(x, y)| -> Option<(usize, usize)> {
+                    let is_within_bounds = x >= 0
+                        && y >= 0
+                        && (x as usize) < self.width()
+                        && (y as usize) < self.height();
 
-    fn set_row(&mut self, index: usize, row: Vec<Option<Object>>) {
-        self.tiles[index] = row;
-    }
+                    if !is_within_bounds {
+                        return None;
+                    }
 
-    fn get_column(&self, index: usize) -> Vec<Option<Object>> {
-        let mut result = vec![];
+                    let x = x as usize;
+                    let y = y as usize;
 
-        for i in 0..self.height() {
-            result.push(self.tiles[i][index])
-        }
+                    if let Tile::Wall = self.tiles[y][x] {
+                        return None;
+                    }
 
-        result
-    }
+                    Some((x, y))
+                })
+                .map(|(x, y)| ((x, y), 1))
+                .collect::<Vec<_>>()
+            },
+            |&(x, y)| {
+                let (ex, ey) = end;
 
-    fn set_column(&mut self, index: usize, column: Vec<Option<Object>>) {
-        for i in 0..self.height() {
-            self.tiles[i][index] = column[i]
-        }
-    }
-
-    fn try_shift_right(&mut self, start: (usize, usize)) -> bool {
-        let mut row = self.get_row(start.1);
-
-        let should_update = shift_right(&mut row, start.0);
-
-        if should_update {
-            self.set_row(start.1, row);
-            return true;
-        }
-
-        false
-    }
-
-    fn try_shift_left(&mut self, start: (usize, usize)) -> bool {
-        let mut row = self.get_row(start.1);
-
-        let should_update = shift_left(&mut row, start.0);
-
-        if should_update {
-            self.set_row(start.1, row);
-            return true;
-        }
-
-        false
-    }
-
-    fn try_shift_down(&mut self, start: (usize, usize)) -> bool {
-        let mut column = self.get_column(start.0);
-
-        let should_update = shift_right(&mut column, start.1);
-
-        if should_update {
-            self.set_column(start.0, column);
-            return true;
-        }
-
-        false
-    }
-
-    fn try_shift_up(&mut self, start: (usize, usize)) -> bool {
-        let mut column = self.get_column(start.0);
-
-        let should_update = shift_left(&mut column, start.1);
-
-        if should_update {
-            self.set_column(start.0, column);
-            return true;
-        }
-
-        false
-    }
-
-    fn checksum(&self) -> usize {
-        let mut result = 0;
-
-        for (y, row) in self.tiles.iter().enumerate() {
-            for (x, tile) in row.iter().enumerate() {
-                if let Some(Object::Box) = tile {
-                    result += 100 * y + x;
-                }
-            }
-        }
+                (((ex as isize - x as isize).pow(2) + (ey as isize - y as isize).pow(2)) as f64)
+                    .sqrt() as usize
+            },
+            |position| position == &end,
+        );
 
         result
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Move {
-    Up,
-    Down,
-    Left,
-    Right,
-}
+fn find_cheats(map: Map) -> (usize, HashMap<usize, usize>) {
+    let baseline = map.find_shortest_paths();
 
-impl TryFrom<char> for Move {
-    type Error = ();
+    let baseline = baseline.unwrap().1;
 
-    fn try_from(value: char) -> Result<Self, Self::Error> {
-        Ok(match value {
-            '^' => Move::Up,
-            'v' => Move::Down,
-            '<' => Move::Left,
-            '>' => Move::Right,
-            _ => return Err(()),
+    let results: Vec<(usize, usize)> = (0..map.height())
+        .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
+        .filter(|&(x, y)| map.tiles[y][x] == Tile::Wall)
+        .into_iter()
+        .par_bridge()
+        .filter_map(|(x, y)| {
+            let mut derived = map.clone();
+            derived.tiles[y][x] = Tile::Empty;
+
+            let paths = derived.find_shortest_paths();
+
+            let Some((paths, cost)) = paths else {
+                return None;
+            };
+
+            let saved_cost = baseline.abs_diff(cost);
+
+            if saved_cost < 1 {
+                return None;
+            }
+
+            Some((saved_cost, paths.len()))
         })
-    }
-}
+        .collect();
 
-#[derive(Debug)]
-struct Game {
-    map: Map,
-    instructions: VecDeque<Move>,
-    robot: (usize, usize),
-}
+    let mut result = HashMap::new();
 
-impl Game {
-    fn parse(input: &str) -> Game {
-        let input = input.trim();
-
-        let mut split = input.split("\n\n").into_iter();
-        let tile_input = split.next().unwrap();
-        let (map, robot) = Map::parse(tile_input);
-
-        let mut instructions: VecDeque<Move> = VecDeque::new();
-
-        while let Some(instructions_input) = split.next() {
-            for c in instructions_input.trim().chars() {
-                if c == '\n' {
-                    continue;
-                }
-
-                if let Ok(instruction) = Move::try_from(c) {
-                    instructions.push_back(instruction);
-                } else {
-                    panic!("Unknown instruction: {}", c);
-                }
-            }
-        }
-
-        Game {
-            map,
-            instructions,
-            robot,
-        }
+    for (saved_cost, count) in results {
+        let entry = result.entry(saved_cost).or_default();
+        *entry += count;
     }
 
-    fn step(&mut self) {
-        let Some(instruction) = self.instructions.pop_front() else {
-            return;
-        };
-
-        match instruction {
-            Move::Right => {
-                let next_pos = (self.robot.0 + 1, self.robot.1);
-                if self.map.try_shift_right(next_pos) {
-                    self.robot = next_pos
-                }
-            }
-            Move::Left => {
-                let next_pos = (self.robot.0 - 1, self.robot.1);
-                if self.map.try_shift_left(next_pos) {
-                    self.robot = next_pos
-                }
-            }
-            Move::Down => {
-                let next_pos = (self.robot.0, self.robot.1 + 1);
-                if self.map.try_shift_down(next_pos) {
-                    self.robot = next_pos
-                }
-            }
-            Move::Up => {
-                let next_pos = (self.robot.0, self.robot.1 - 1);
-                if self.map.try_shift_up(next_pos) {
-                    self.robot = next_pos
-                }
-            }
-        }
-    }
-
-    fn run(&mut self) {
-        while self.instructions.len() > 0 {
-            self.step();
-        }
-    }
-
-    fn checksum(&self) -> usize {
-        self.map.checksum()
-    }
+    (baseline, result)
 }
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day15.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day20.txt").expect("Failed to read file");
 
-    let mut game = Game::parse(&input);
+    let map = Map::parse(&input);
 
-    game.run();
+    let (_, cheats) = find_cheats(map);
 
-    let result = game.checksum();
+    let result: usize = cheats
+        .iter()
+        .filter_map(|(saved, count)| {
+            if saved < &100 {
+                return None;
+            }
+
+            return Some(count);
+        })
+        .sum();
 
     println!("Result (Part 1): {result}");
 }
@@ -350,333 +178,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_column() {
+    fn test_example() {
         let input = r#"
-#
-O
-.
-O
-.
-.
+###############
+#...#...#.....#
+#.#.#.#.#.###.#
+#S#...#.#.#...#
+#######.#.#.###
+#######.#.#...#
+#######.#.###.#
+###..E#...#...#
+###.#######.###
+#...###...#...#
+#.#####.#.###.#
+#.#...#.#.#...#
+#.#.#.#.#.#.###
+#...#...#...###
+###############
         "#;
 
-        let (map, _) = Map::parse(input);
+        let map = Map::parse(input);
 
-        let column = map.get_column(0);
+        let (baseline, cheats) = find_cheats(map);
 
-        assert_eq!(
-            column,
-            vec![
-                Some(Object::Wall),
-                Some(Object::Box),
-                None,
-                Some(Object::Box),
-                None,
-                None,
-            ]
-        );
-    }
-
-    #[test]
-    fn test_shift_right() {
-        let input = r#"
-..O.O#
-        "#;
-
-        let (mut map, _) = Map::parse(input);
-
-        map.try_shift_right((0, 0));
+        assert_eq!(baseline, 84);
 
         assert_eq!(
-            map.tiles[0],
-            vec![
-                None,
-                None,
-                Some(Object::Box),
-                None,
-                Some(Object::Box),
-                Some(Object::Wall)
+            cheats,
+            [
+                (64, 1),
+                (40, 1),
+                (38, 1),
+                (36, 1),
+                (20, 1),
+                (12, 3),
+                (10, 2),
+                (8, 4),
+                (6, 2),
+                (4, 14),
+                (2, 14)
             ]
-        );
-
-        map.try_shift_right((2, 0));
-
-        assert_eq!(
-            map.tiles[0],
-            vec![
-                None,
-                None,
-                None,
-                Some(Object::Box),
-                Some(Object::Box),
-                Some(Object::Wall)
-            ]
-        );
-
-        map.try_shift_right((3, 0));
-
-        assert_eq!(
-            map.tiles[0],
-            vec![
-                None,
-                None,
-                None,
-                Some(Object::Box),
-                Some(Object::Box),
-                Some(Object::Wall)
-            ]
-        );
-    }
-
-    #[test]
-    fn test_shift_left() {
-        let input = r#"
-#O.O..
-        "#;
-
-        let (mut map, _) = Map::parse(input);
-
-        map.try_shift_left((5, 0));
-
-        assert_eq!(
-            map.tiles[0],
-            vec![
-                Some(Object::Wall),
-                Some(Object::Box),
-                None,
-                Some(Object::Box),
-                None,
-                None,
-            ]
-        );
-
-        map.try_shift_left((3, 0));
-
-        assert_eq!(
-            map.tiles[0],
-            vec![
-                Some(Object::Wall),
-                Some(Object::Box),
-                Some(Object::Box),
-                None,
-                None,
-                None,
-            ]
-        );
-
-        map.try_shift_left((2, 0));
-
-        assert_eq!(
-            map.tiles[0],
-            vec![
-                Some(Object::Wall),
-                Some(Object::Box),
-                Some(Object::Box),
-                None,
-                None,
-                None,
-            ]
-        );
-    }
-
-    #[test]
-    fn test_shift_up() {
-        let input = r#"
-#
-O
-.
-O
-.
-.
-        "#;
-
-        let (mut map, _) = Map::parse(input);
-
-        map.try_shift_up((0, 5));
-
-        assert_eq!(
-            map.get_column(0),
-            vec![
-                Some(Object::Wall),
-                Some(Object::Box),
-                None,
-                Some(Object::Box),
-                None,
-                None,
-            ]
-        );
-
-        map.try_shift_up((0, 3));
-
-        assert_eq!(
-            map.get_column(0),
-            vec![
-                Some(Object::Wall),
-                Some(Object::Box),
-                Some(Object::Box),
-                None,
-                None,
-                None,
-            ]
-        );
-
-        map.try_shift_up((0, 2));
-
-        assert_eq!(
-            map.get_column(0),
-            vec![
-                Some(Object::Wall),
-                Some(Object::Box),
-                Some(Object::Box),
-                None,
-                None,
-                None,
-            ]
-        );
-    }
-
-    #[test]
-    fn test_shift_down() {
-        let input = r#"
-.
-.
-O
-.
-O
-#
-        "#;
-
-        let (mut map, _) = Map::parse(input);
-
-        map.try_shift_down((0, 0));
-
-        assert_eq!(
-            map.get_column(0),
-            vec![
-                None,
-                None,
-                Some(Object::Box),
-                None,
-                Some(Object::Box),
-                Some(Object::Wall),
-            ]
-        );
-
-        map.try_shift_down((0, 2));
-
-        assert_eq!(
-            map.get_column(0),
-            vec![
-                None,
-                None,
-                None,
-                Some(Object::Box),
-                Some(Object::Box),
-                Some(Object::Wall),
-            ]
-        );
-
-        map.try_shift_down((0, 3));
-
-        assert_eq!(
-            map.get_column(0),
-            vec![
-                None,
-                None,
-                None,
-                Some(Object::Box),
-                Some(Object::Box),
-                Some(Object::Wall),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_example_one() {
-        let input = r#"
-########
-#..O.O.#
-##@.O..#
-#...O..#
-#.#.O..#
-#...O..#
-#......#
-########
-
-<^^>>>vv<v>>v<<
-        "#;
-
-        let mut game = Game::parse(input);
-
-        game.run();
-
-        let expected = r#"
-########
-#....OO#
-##.....#
-#.....O#
-#.#O@..#
-#...O..#
-#...O..#
-########        
-        "#;
-
-        let (expected_map, expected_robot_position) = Map::parse(&expected);
-
-        assert_eq!(game.robot, expected_robot_position);
-        assert_eq!(game.map, expected_map);
-
-        assert_eq!(game.checksum(), 2028);
-    }
-
-    #[test]
-    fn test_example_two() {
-        let input = r#"
-##########
-#..O..O.O#
-#......O.#
-#.OO..O.O#
-#..O@..O.#
-#O#..O...#
-#O..O..O.#
-#.OO.O.OO#
-#....O...#
-##########
-
-<vv>^<v^>v>^vv^v>v<>v^v<v<^vv<<<^><<><>>v<vvv<>^v^>^<<<><<v<<<v^vv^v>^
-vvv<<^>^v^^><<>>><>^<<><^vv^^<>vvv<>><^^v>^>vv<>v<<<<v<^v>^<^^>>>^<v<v
-><>vv>v^v^<>><>>>><^^>vv>v<^^^>>v^v^<^^>v^^>v^<^v>v<>>v^v^<v>v^^<^^vv<
-<<v<^>>^^^^>>>v^<>vvv^><v<<<>^^^vv^<vvv>^>v<^^^^v<>^>vvvv><>>v^<<^^^^^
-^><^><>>><>^^<<^^v>>><^<v>^<vv>>v>>>^v><>^v><<<<v>>v<v<v>vvv>^<><<>^><
-^>><>^v<><^vvv<^^<><v<<<<<><^v<<<><<<^^<v<^^^><^>>^<v^><<<^>>^v<v^v<v^
->^>>^v>vv>^<<^v<>><<><<v<<v><>v<^vv<<<>^^v^>^^>>><<^v>>v^v><^^>>^<>vv^
-<><^^>^^^<><vvvvv^v<v<<>^v<v>v<<^><<><<><<<^^<<<^<<>><<><^^^>^^<>^>v<>
-^^>vv<^v^v<vv>^<><v<^v>^^^>>>^^vvv^>vvv<>>>^<^>>>>>^<<^v>^vvv<>^<><<v>
-v^^>>><<^^<>>^v^<v^vv<>v^<<>^<^v^v><^<<<><<^<v><v<>vv>>v><v^<vv<>v^<<^
-        "#;
-
-        let mut game = Game::parse(input);
-
-        game.run();
-
-        let expected = r#"
-##########
-#.O.O.OOO#
-#........#
-#OO......#
-#OO@.....#
-#O#.....O#
-#O.....OO#
-#O.....OO#
-#OO....OO#
-##########      
-        "#;
-
-        let (expected_map, expected_robot_position) = Map::parse(&expected);
-
-        assert_eq!(game.robot, expected_robot_position);
-        assert_eq!(game.map, expected_map);
-
-        assert_eq!(game.checksum(), 10092);
+            .into_iter()
+            .collect::<HashMap<usize, usize>>()
+        )
     }
 }
