@@ -1,9 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fs,
-};
+use std::{collections::HashMap, fs};
 
 use pathfinding::prelude::astar_bag_collect;
+use rayon::iter::{ParallelBridge, ParallelIterator};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tile {
@@ -65,69 +63,41 @@ impl Map {
 
         Map { tiles, start, end }
     }
-}
 
-struct Run {
-    map: Map,
-    allow_cheats: bool,
-    cheat_position: Option<(usize, usize)>,
-    forbidden_cheat_positions: HashMap<usize, HashSet<(usize, usize)>>,
-}
-
-impl Run {
-    fn next_positions(
-        &mut self,
-        include_cheats: bool,
-        &(x, y): &(usize, usize),
-    ) -> Vec<(usize, usize)> {
-        [
-            (x as isize, y as isize - 1),
-            (x as isize, y as isize + 1),
-            (x as isize - 1, y as isize),
-            (x as isize + 1, y as isize),
-        ]
-        .into_iter()
-        .filter_map(|(x, y)| -> Option<(usize, usize)> {
-            let is_within_bounds = x >= 0
-                && y >= 0
-                && (x as usize) < self.map.width()
-                && (y as usize) < self.map.height();
-
-            if !is_within_bounds {
-                return None;
-            }
-
-            let x = x as usize;
-            let y = y as usize;
-
-            if let Tile::Wall = self.map.tiles[y][x] {
-                if !include_cheats {
-                    return None;
-                }
-            }
-
-            Some((x, y))
-        })
-        .collect()
-    }
-
-    fn find_shortest_paths(&mut self) -> Option<(Vec<Vec<(usize, usize)>>, usize)> {
-        let start = self.map.start;
-        let end = self.map.end;
+    fn find_shortest_paths(&self) -> Option<(Vec<Vec<(usize, usize)>>, usize)> {
+        let start = self.start;
+        let end = self.end;
         let result = astar_bag_collect(
             &start,
             |&(x, y)| {
-                if self.map.tiles[y][x] == Tile::Wall {
-                    self.cheat_position = Some((x, y));
-                }
+                [
+                    (x as isize, y as isize - 1),
+                    (x as isize, y as isize + 1),
+                    (x as isize - 1, y as isize),
+                    (x as isize + 1, y as isize),
+                ]
+                .into_iter()
+                .filter_map(|(x, y)| -> Option<(usize, usize)> {
+                    let is_within_bounds = x >= 0
+                        && y >= 0
+                        && (x as usize) < self.width()
+                        && (y as usize) < self.height();
 
-                let successors = self
-                    .next_positions(self.allow_cheats && self.cheat_position.is_none(), &(x, y))
-                    .iter()
-                    .map(|(nx, ny)| ((*nx, *ny), 1))
-                    .collect::<Vec<_>>();
+                    if !is_within_bounds {
+                        return None;
+                    }
 
-                successors
+                    let x = x as usize;
+                    let y = y as usize;
+
+                    if let Tile::Wall = self.tiles[y][x] {
+                        return None;
+                    }
+
+                    Some((x, y))
+                })
+                .map(|(x, y)| ((x, y), 1))
+                .collect::<Vec<_>>()
             },
             |&(x, y)| {
                 let (ex, ey) = end;
@@ -138,71 +108,45 @@ impl Run {
             |position| position == &end,
         );
 
-        dbg!(&result);
-
         result
     }
 }
 
-fn find_cheat_positions(map: &Map, path: &[(usize, usize)]) -> Vec<(usize, usize)> {
-    path.iter()
-        .filter(|&(x, y)| map.tiles[*y][*x] == Tile::Wall)
-        .copied()
-        .collect()
-}
-
 fn find_cheats(map: Map) -> (usize, HashMap<usize, usize>) {
-    let mut baseline = Run {
-        map: map.clone(),
-        forbidden_cheat_positions: HashMap::new(),
-        cheat_position: None,
-        allow_cheats: false,
-    };
+    let baseline = map.find_shortest_paths();
 
-    let baseline = baseline.find_shortest_paths().unwrap().1;
+    let baseline = baseline.unwrap().1;
+
+    let results: Vec<(usize, usize)> = (0..map.height())
+        .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
+        .filter(|&(x, y)| map.tiles[y][x] == Tile::Wall)
+        .into_iter()
+        .par_bridge()
+        .filter_map(|(x, y)| {
+            let mut derived = map.clone();
+            derived.tiles[y][x] = Tile::Empty;
+
+            let paths = derived.find_shortest_paths();
+
+            let Some((paths, cost)) = paths else {
+                return None;
+            };
+
+            let saved_cost = baseline.abs_diff(cost);
+
+            if saved_cost < 1 {
+                return None;
+            }
+
+            Some((saved_cost, paths.len()))
+        })
+        .collect();
 
     let mut result = HashMap::new();
-    let mut forbidden_cheat_positions: HashMap<usize, HashSet<(usize, usize)>> = HashMap::new();
 
-    loop {
-        let mut cheat_run = Run {
-            map: map.clone(),
-            forbidden_cheat_positions: forbidden_cheat_positions.clone(),
-            cheat_position: None,
-            allow_cheats: true,
-        };
-
-        let paths = cheat_run.find_shortest_paths();
-
-        dbg!(paths);
-        break;
-
-        let Some((paths, cost)) = paths else {
-            break;
-        };
-
-        if cost == baseline {
-            break;
-        }
-
-        let entry = result.entry(baseline.abs_diff(cost)).or_default();
-
-        *entry += paths.len();
-
-        for path in paths {
-            let cheat_positions = find_cheat_positions(&map, &path);
-            let mut cheat_positions = cheat_positions.iter();
-
-            if let Some(position) = cheat_positions.next() {
-                let entry = forbidden_cheat_positions.entry(1).or_default();
-                entry.insert(*position);
-            }
-
-            if let Some(position) = cheat_positions.next() {
-                let entry = forbidden_cheat_positions.entry(2).or_default();
-                entry.insert(*position);
-            }
-        }
+    for (saved_cost, count) in results {
+        let entry = result.entry(saved_cost).or_default();
+        *entry += count;
     }
 
     (baseline, result)
@@ -213,7 +157,18 @@ fn main() {
 
     let map = Map::parse(&input);
 
-    let result = 0;
+    let (_, cheats) = find_cheats(map);
+
+    let result: usize = cheats
+        .iter()
+        .filter_map(|(saved, count)| {
+            if saved < &100 {
+                return None;
+            }
+
+            return Some(count);
+        })
+        .sum();
 
     println!("Result (Part 1): {result}");
 }
@@ -248,6 +203,23 @@ mod tests {
 
         assert_eq!(baseline, 84);
 
-        dbg!(cheats);
+        assert_eq!(
+            cheats,
+            [
+                (64, 1),
+                (40, 1),
+                (38, 1),
+                (36, 1),
+                (20, 1),
+                (12, 3),
+                (10, 2),
+                (8, 4),
+                (6, 2),
+                (4, 14),
+                (2, 14)
+            ]
+            .into_iter()
+            .collect::<HashMap<usize, usize>>()
+        )
     }
 }
