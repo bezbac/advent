@@ -1,167 +1,38 @@
-use std::{collections::HashMap, fs};
+use std::{fs, ops::BitXor};
 
-use pathfinding::prelude::astar_bag_collect;
-use rayon::iter::{ParallelBridge, ParallelIterator};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Tile {
-    Empty,
-    Wall,
+fn mix(sn: isize, modifier: isize) -> isize {
+    modifier.bitxor(sn)
 }
 
-#[derive(Debug, Clone)]
-struct Map {
-    tiles: Vec<Vec<Tile>>,
-    start: (usize, usize),
-    end: (usize, usize),
+fn prune(sn: isize) -> isize {
+    return sn % 16777216;
 }
 
-impl Map {
-    fn width(&self) -> usize {
-        self.tiles.first().unwrap().len()
-    }
-
-    fn height(&self) -> usize {
-        self.tiles.len()
-    }
-
-    fn parse(input: &str) -> Map {
-        let input = input.trim();
-
-        let mut tiles = Vec::new();
-        let mut start = None;
-        let mut end = None;
-
-        for (y, row) in input.lines().enumerate() {
-            let mut row_tiles = Vec::new();
-
-            for (x, c) in row.chars().enumerate() {
-                match c {
-                    '#' => {
-                        row_tiles.push(Tile::Wall);
-                    }
-                    '.' => {
-                        row_tiles.push(Tile::Empty);
-                    }
-                    'S' => {
-                        row_tiles.push(Tile::Empty);
-                        start = Some((x, y));
-                    }
-                    'E' => {
-                        row_tiles.push(Tile::Empty);
-                        end = Some((x, y));
-                    }
-                    _ => panic!("Unexpected character"),
-                }
-            }
-
-            tiles.push(row_tiles);
-        }
-
-        let start = start.unwrap();
-        let end = end.unwrap();
-
-        Map { tiles, start, end }
-    }
-
-    fn find_shortest_paths(&self) -> Option<(Vec<Vec<(usize, usize)>>, usize)> {
-        let start = self.start;
-        let end = self.end;
-        astar_bag_collect(
-            &start,
-            |&(x, y)| {
-                [
-                    (x as isize, y as isize - 1),
-                    (x as isize, y as isize + 1),
-                    (x as isize - 1, y as isize),
-                    (x as isize + 1, y as isize),
-                ]
-                .into_iter()
-                .filter_map(|(x, y)| -> Option<(usize, usize)> {
-                    let is_within_bounds = x >= 0
-                        && y >= 0
-                        && (x as usize) < self.width()
-                        && (y as usize) < self.height();
-
-                    if !is_within_bounds {
-                        return None;
-                    }
-
-                    let x = x as usize;
-                    let y = y as usize;
-
-                    if let Tile::Wall = self.tiles[y][x] {
-                        return None;
-                    }
-
-                    Some((x, y))
-                })
-                .map(|(x, y)| ((x, y), 1))
-                .collect::<Vec<_>>()
-            },
-            |&(x, y)| {
-                let (ex, ey) = end;
-
-                (((ex as isize - x as isize).pow(2) + (ey as isize - y as isize).pow(2)) as f64)
-                    .sqrt() as usize
-            },
-            |position| position == &end,
-        )
-    }
+fn get_next_secret_number(sn: isize) -> isize {
+    let mut result = prune(mix(sn, sn * 64));
+    result = prune(mix(result, result / 32));
+    result = prune(mix(result, result * 2048));
+    result
 }
 
-fn find_cheats(map: &Map) -> (usize, HashMap<usize, usize>) {
-    let baseline = map.find_shortest_paths();
-
-    let baseline = baseline.unwrap().1;
-
-    let results: Vec<(usize, usize)> = (0..map.height())
-        .flat_map(|y| (0..map.width()).map(move |x| (x, y)))
-        .filter(|&(x, y)| map.tiles[y][x] == Tile::Wall)
-        .par_bridge()
-        .filter_map(|(x, y)| {
-            let mut derived = map.clone();
-            derived.tiles[y][x] = Tile::Empty;
-
-            let paths = derived.find_shortest_paths();
-
-            let (paths, cost) = paths?;
-
-            let saved_cost = baseline.abs_diff(cost);
-
-            if saved_cost < 1 {
-                return None;
-            }
-
-            Some((saved_cost, paths.len()))
-        })
-        .collect();
-
-    let mut result = HashMap::new();
-
-    for (saved_cost, count) in results {
-        let entry = result.entry(saved_cost).or_default();
-        *entry += count;
+fn generate_nth_secret_number(input: isize, n: usize) -> isize {
+    let mut current = input;
+    for _ in 0..n {
+        current = get_next_secret_number(current);
     }
-
-    (baseline, result)
+    return current;
 }
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day20.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day22.txt").expect("Failed to read file");
 
-    let map = Map::parse(&input);
-
-    let (_, cheats) = find_cheats(&map);
-
-    let result: usize = cheats
-        .iter()
-        .filter_map(|(saved, count)| {
-            if saved < &100 {
-                return None;
-            }
-
-            Some(count)
+    let result: isize = input
+        .trim()
+        .lines()
+        .map(|line| {
+            let line = line.trim();
+            let sn = line.parse().unwrap();
+            generate_nth_secret_number(sn, 2000)
         })
         .sum();
 
@@ -173,48 +44,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_example() {
-        let input = r#"
-###############
-#...#...#.....#
-#.#.#.#.#.###.#
-#S#...#.#.#...#
-#######.#.#.###
-#######.#.#...#
-#######.#.###.#
-###..E#...#...#
-###.#######.###
-#...###...#...#
-#.#####.#.###.#
-#.#...#.#.#...#
-#.#.#.#.#.#.###
-#...#...#...###
-###############
-        "#;
+    fn test_mix() {
+        assert_eq!(mix(42, 15), 37);
+    }
 
-        let map = Map::parse(input);
+    #[test]
+    fn test_prune() {
+        assert_eq!(prune(100000000), 16113920);
+    }
 
-        let (baseline, cheats) = find_cheats(&map);
+    #[test]
+    fn test_generate_nth_secret_number() {
+        assert_eq!(generate_nth_secret_number(1, 2000), 8685429);
+        assert_eq!(generate_nth_secret_number(10, 2000), 4700978);
+        assert_eq!(generate_nth_secret_number(100, 2000), 15273692);
+        assert_eq!(generate_nth_secret_number(2024, 2000), 8667524);
+    }
 
-        assert_eq!(baseline, 84);
+    #[test]
+    fn test_calculate_next_number() {
+        let mut secret_number = 123;
+
+        let mut next_10 = vec![];
+        for _ in 0..10 {
+            secret_number = get_next_secret_number(secret_number);
+            next_10.push(secret_number);
+        }
 
         assert_eq!(
-            cheats,
-            [
-                (64, 1),
-                (40, 1),
-                (38, 1),
-                (36, 1),
-                (20, 1),
-                (12, 3),
-                (10, 2),
-                (8, 4),
-                (6, 2),
-                (4, 14),
-                (2, 14)
+            next_10,
+            vec![
+                15887950, 16495136, 527345, 704524, 1553684, 12683156, 11100544, 12249484, 7753432,
+                5908254,
             ]
-            .into_iter()
-            .collect::<HashMap<usize, usize>>()
-        )
+        );
     }
 }
