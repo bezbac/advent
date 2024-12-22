@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs, usize,
+    fs,
 };
 
 use itertools::Itertools;
@@ -126,7 +126,7 @@ fn get_directional_command_from_delta(d: (isize, isize)) -> Option<DirectionalCo
         (1, 0) => Some(DirectionalCommand::Right),
         (0, -1) => Some(DirectionalCommand::Up),
         (0, 1) => Some(DirectionalCommand::Down),
-        _ => panic!("Cannot get directional command for {:?}", d),
+        _ => panic!("Cannot get directional command for {d:?}"),
     }
 }
 
@@ -230,7 +230,8 @@ fn compute_shortest_paths_between_keys() -> HashMap<(Key, Key), HashSet<Vec<Dire
                     if first != last {
                         return true;
                     }
-                    return path.into_iter().all(|cmd| cmd == first);
+
+                    path.iter().all(|cmd| cmd == first)
                 })
                 .collect();
 
@@ -255,7 +256,7 @@ fn parse_keys(input: &str) -> Vec<Key> {
     let mut result = vec![];
 
     for c in input.trim().chars() {
-        result.push(Key::try_from(c).unwrap())
+        result.push(Key::try_from(c).unwrap());
     }
 
     result
@@ -358,10 +359,11 @@ fn encode(code: &[Key]) -> HashSet<Vec<DirectionalCommand>> {
 
     for (i, x) in code.iter().enumerate() {
         if i == 0 {
-            encoded = shortest_paths_between_keys
-                .get(&(Key::Activate, *x))
-                .unwrap()
-                .clone();
+            encoded.clone_from(
+                shortest_paths_between_keys
+                    .get(&(Key::Activate, *x))
+                    .unwrap(),
+            );
             continue;
         }
 
@@ -405,10 +407,11 @@ fn reencode(commands: &[DirectionalCommand]) -> HashSet<Vec<DirectionalCommand>>
 
     for (i, x) in commands.iter().enumerate() {
         if i == 0 {
-            encoded = shortest_paths_between_commands
-                .get(&(DirectionalCommand::Activate, *x))
-                .unwrap()
-                .clone();
+            encoded.clone_from(
+                shortest_paths_between_commands
+                    .get(&(DirectionalCommand::Activate, *x))
+                    .unwrap(),
+            );
 
             continue;
         }
@@ -420,7 +423,7 @@ fn reencode(commands: &[DirectionalCommand]) -> HashSet<Vec<DirectionalCommand>>
             .unwrap()
             .clone();
 
-        if paths.len() == 0 {
+        if paths.is_empty() {
             encoded = encoded
                 .into_iter()
                 .map(|mut encoded| {
@@ -457,14 +460,7 @@ fn reencode(commands: &[DirectionalCommand]) -> HashSet<Vec<DirectionalCommand>>
     encoded
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Level {
-    Zero,
-    One,
-    Two,
-}
-
-fn find_shortest_encoding(code: &[Key], level: Level) -> Vec<DirectionalCommand> {
+fn find_shortest_encoding(code: &[Key], reencode_n: usize) -> Vec<DirectionalCommand> {
     println!(
         "Finding shortest encoding for {}",
         code.iter().map(|k| char::from(*k)).join(",")
@@ -474,22 +470,13 @@ fn find_shortest_encoding(code: &[Key], level: Level) -> Vec<DirectionalCommand>
 
     println!("Found {} possible 0 level encodings", encoded.len());
 
-    if level == Level::One || level == Level::Two {
+    for i in 0..reencode_n {
         encoded = encoded
             .into_par_iter()
             .flat_map(|commands| reencode(&commands))
             .collect();
 
-        println!("Found {} possible 1 level encodings", encoded.len());
-    }
-
-    if level == Level::Two {
-        encoded = encoded
-            .into_par_iter()
-            .flat_map(|commands| reencode(&commands))
-            .collect();
-
-        println!("Found {} possible 2 level encodings", encoded.len());
+        println!("Found {} possible {} level encodings", encoded.len(), i + 1);
     }
 
     encoded
@@ -502,9 +489,9 @@ fn get_numeric_part(code: &[Key]) -> usize {
     code.iter()
         .filter_map(|key| {
             if let Ok(value) = usize::try_from(*key) {
-                return Some(value);
+                Some(value)
             } else {
-                return None;
+                None
             }
         })
         .map(|v| v.to_string())
@@ -519,12 +506,12 @@ fn calculate_checksum(encoded: &[DirectionalCommand], code: &[Key]) -> usize {
     a * b
 }
 
-fn calculate_checksums(codes: &[Vec<Key>]) -> usize {
+fn calculate_checksums(codes: &[Vec<Key>], reencode_n: usize) -> usize {
     codes
         .par_iter()
         .map(|code| {
-            let encoded = find_shortest_encoding(&code, Level::Two);
-            calculate_checksum(&encoded, &code)
+            let encoded = find_shortest_encoding(code, reencode_n);
+            calculate_checksum(&encoded, code)
         })
         .sum()
 }
@@ -538,7 +525,7 @@ fn main() {
         .map(|line| parse_keys(line.trim()))
         .collect();
 
-    let result = calculate_checksums(&codes);
+    let result = calculate_checksums(&codes, 2);
 
     println!("Result (Part 1): {result}");
 }
@@ -738,30 +725,12 @@ mod tests {
 
     #[test]
     fn test_find_shortest_encoding() {
-        assert_eq!(
-            find_shortest_encoding(&parse_keys("029A"), Level::Zero).len(),
-            12
-        );
-        assert_eq!(
-            find_shortest_encoding(&parse_keys("029A"), Level::Two).len(),
-            68
-        );
-        assert_eq!(
-            find_shortest_encoding(&parse_keys("980A"), Level::Two).len(),
-            60
-        );
-        assert_eq!(
-            find_shortest_encoding(&parse_keys("179A"), Level::Two).len(),
-            68
-        );
-        assert_eq!(
-            find_shortest_encoding(&parse_keys("456A"), Level::Two).len(),
-            64
-        );
-        assert_eq!(
-            find_shortest_encoding(&parse_keys("379A"), Level::Two).len(),
-            64
-        );
+        assert_eq!(find_shortest_encoding(&parse_keys("029A"), 0).len(), 12);
+        assert_eq!(find_shortest_encoding(&parse_keys("029A"), 2).len(), 68);
+        assert_eq!(find_shortest_encoding(&parse_keys("980A"), 2).len(), 60);
+        assert_eq!(find_shortest_encoding(&parse_keys("179A"), 2).len(), 68);
+        assert_eq!(find_shortest_encoding(&parse_keys("456A"), 2).len(), 64);
+        assert_eq!(find_shortest_encoding(&parse_keys("379A"), 2).len(), 64);
     }
 
     #[test]
@@ -771,7 +740,8 @@ mod tests {
                 &["029A", "980A", "179A", "456A", "379A"]
                     .into_iter()
                     .map(|input| parse_keys(input))
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
+                2
             ),
             126384
         );
