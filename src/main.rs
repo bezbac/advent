@@ -11,7 +11,7 @@ fn mix(sn: isize, modifier: isize) -> isize {
 }
 
 fn prune(sn: isize) -> isize {
-    return sn % 16777216;
+    sn % 16_777_216
 }
 
 fn get_next_secret_number(sn: isize) -> isize {
@@ -26,7 +26,7 @@ fn generate_nth_secret_number(input: isize, n: usize) -> isize {
     for _ in 0..n {
         current = get_next_secret_number(current);
     }
-    return current;
+    current
 }
 
 fn generate_n_secret_numbers(input: isize, n: usize) -> Vec<isize> {
@@ -40,14 +40,14 @@ fn generate_n_secret_numbers(input: isize, n: usize) -> Vec<isize> {
 }
 
 fn get_price_from_secret_number(input: isize) -> isize {
-    return input % 10;
+    input % 10
 }
 
 fn get_changes(input: &[isize]) -> Vec<isize> {
     let mut result = vec![];
 
     for (i, v) in input[1..].iter().enumerate() {
-        result.push(v - input[i])
+        result.push(v - input[i]);
     }
 
     result
@@ -57,40 +57,26 @@ fn generate_n_prices(input: isize, n: usize) -> Vec<isize> {
     let secret_numbers = generate_n_secret_numbers(input, n);
     secret_numbers
         .into_iter()
-        .map(|sn| get_price_from_secret_number(sn))
+        .map(get_price_from_secret_number)
         .collect()
 }
 
-fn get_sequences_with_prices(prices: &[isize], changes: &[isize]) -> Vec<(Vec<isize>, isize)> {
+fn get_sequences_with_first_price(prices: &[isize], changes: &[isize]) -> Vec<(Vec<isize>, isize)> {
+    let mut seen = HashSet::new();
     let mut result = vec![];
 
     for (i, sequence) in changes.windows(4).enumerate() {
-        let price = prices[i + 4];
+        if seen.contains(sequence) {
+            continue;
+        }
 
-        result.push((sequence.to_vec(), price))
+        seen.insert(sequence);
+
+        let price = prices[i + 4];
+        result.push((sequence.to_vec(), price));
     }
 
     result
-}
-
-// If a sequence occurs multiple times with different prices, this function will filter out
-// all occurences that are not the best.
-// This also means, that the sequences outputted by this function will be unique
-fn filter_first_sequences(sequences: &[(Vec<isize>, isize)]) -> HashSet<(Vec<isize>, isize)> {
-    let mut dedup = HashSet::new();
-    sequences
-        .into_iter()
-        .filter(|(seq, _)| {
-            if dedup.contains(seq) {
-                return false;
-            }
-
-            dedup.insert(seq);
-
-            return true;
-        })
-        .cloned()
-        .collect()
 }
 
 fn pick_best_sequence(input: &[Vec<(Vec<isize>, isize)>]) -> (Vec<isize>, isize) {
@@ -98,23 +84,23 @@ fn pick_best_sequence(input: &[Vec<(Vec<isize>, isize)>]) -> (Vec<isize>, isize)
 
     for sequences in input {
         for (sequence, price) in sequences {
-            *grouped.entry(sequence).or_default() += price
+            *grouped.entry(sequence).or_default() += price;
         }
     }
 
     let sorted: Vec<_> = grouped
-        .into_iter()
+        .iter()
         .sorted_by(|(_, a), (_, b)| b.cmp(a))
         .collect();
 
     let first = sorted.first().unwrap();
 
-    (first.0.clone(), first.1)
+    ((*first.0).clone(), *first.1)
 }
 
 fn find_best_sequence_from_sn(secret_numbers: &[isize]) -> (Vec<isize>, isize) {
     let prices: Vec<Vec<isize>> = secret_numbers
-        .into_iter()
+        .iter()
         .map(|x| generate_n_prices(*x, 2000))
         .collect();
 
@@ -123,14 +109,10 @@ fn find_best_sequence_from_sn(secret_numbers: &[isize]) -> (Vec<isize>, isize) {
     let sequences_for_prices: Vec<_> = prices
         .iter()
         .zip(changes)
-        .map(|(prices, changes)| {
-            filter_first_sequences(&get_sequences_with_prices(&prices, &changes))
-                .into_iter()
-                .collect::<Vec<_>>()
-        })
+        .map(|(prices, changes)| get_sequences_with_first_price(prices, &changes))
         .collect();
 
-    return pick_best_sequence(&sequences_for_prices);
+    pick_best_sequence(&sequences_for_prices)
 }
 
 fn main() {
@@ -154,7 +136,7 @@ fn main() {
 
     let result = find_best_sequence_from_sn(&starting_numbers);
 
-    println!("Result (Part 2): {}", result.1)
+    println!("Result (Part 2): {}", result.1);
 }
 
 #[cfg(test)]
@@ -187,7 +169,7 @@ mod tests {
 
         let prices: Vec<_> = series
             .into_iter()
-            .map(|n| get_price_from_secret_number(n))
+            .map(get_price_from_secret_number)
             .collect();
 
         assert_eq!(prices, vec![3, 0, 6, 5, 4, 4, 6, 4, 4, 2]);
@@ -196,13 +178,9 @@ mod tests {
 
         assert_eq!(changes, vec![-3, 6, -1, -1, 0, 2, -2, 0, -2]);
 
-        let sequence = get_sequences_with_prices(&prices, &changes);
+        let sequence = get_sequences_with_first_price(&prices, &changes);
 
         assert!(sequence.contains(&(vec![-1, -1, 0, 2], 6)));
-
-        let best_sequence = filter_first_sequences(&sequence);
-
-        assert!(best_sequence.contains(&(vec![-1, -1, 0, 2], 6)));
     }
 
     #[test]
@@ -218,39 +196,6 @@ mod tests {
         assert_eq!(
             find_best_sequence_from_sn(&[1, 2, 3, 2024]),
             (vec![-2, 1, -1, 3], 23)
-        );
-    }
-
-    #[test]
-    fn test_filter_best_sequences() {
-        assert_eq!(
-            filter_first_sequences(&[
-                (vec![-2, 1, -1, 3], 3),
-                (vec![-2, 1, -1, 3], 12),
-                (vec![-2, 1, -1, 3], 2),
-                (vec![0, 0, 1, 2], 2),
-            ]),
-            [(vec![-2, 1, -1, 3], 3), (vec![0, 0, 1, 2], 2)]
-                .into_iter()
-                .collect()
-        );
-
-        assert_eq!(
-            filter_first_sequences(&[
-                (vec![4, -2, 2, -1,], 5),
-                (vec![-2, 2, -1, -1,], 4),
-                (vec![2, -1, -1, -4,], 0),
-                (vec![-1, -1, -4, 6,], 6),
-                (vec![-2, 2, -1, -1,], 7),
-            ]),
-            [
-                (vec![4, -2, 2, -1], 5),
-                (vec![2, -1, -1, -4], 0),
-                (vec![-1, -1, -4, 6], 6),
-                (vec![-2, 2, -1, -1], 4)
-            ]
-            .into_iter()
-            .collect()
         );
     }
 
@@ -273,7 +218,7 @@ mod tests {
         let changes = get_changes(&prices);
 
         assert_eq!(
-            get_sequences_with_prices(&prices, &changes),
+            get_sequences_with_first_price(&prices, &changes),
             vec![
                 (vec![-3, 6, -1, -1], 4),
                 (vec![6, -1, -1, 0], 4),
