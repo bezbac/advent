@@ -1,142 +1,150 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    ops::BitXor,
 };
 
 use itertools::Itertools;
 
-fn mix(sn: isize, modifier: isize) -> isize {
-    modifier.bitxor(sn)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Op {
+    And,
+    Or,
+    Xor,
 }
 
-fn prune(sn: isize) -> isize {
-    sn % 16_777_216
-}
+impl TryFrom<&str> for Op {
+    type Error = ();
 
-fn get_next_secret_number(sn: isize) -> isize {
-    let mut result = prune(mix(sn, sn * 64));
-    result = prune(mix(result, result / 32));
-    result = prune(mix(result, result * 2048));
-    result
-}
-
-fn generate_nth_secret_number(input: isize, n: usize) -> isize {
-    let mut current = input;
-    for _ in 0..n {
-        current = get_next_secret_number(current);
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value {
+            "OR" => Op::Or,
+            "AND" => Op::And,
+            "XOR" => Op::Xor,
+            _ => return Err(()),
+        })
     }
-    current
 }
 
-fn generate_n_secret_numbers(input: isize, n: usize) -> Vec<isize> {
-    let mut result = vec![input];
-    let mut current = input;
-    for _ in 0..n {
-        current = get_next_secret_number(current);
-        result.push(current);
-    }
-    result
+struct System {
+    node_values: HashMap<String, bool>,
+    nodes: HashSet<String>,
+    edges: HashSet<(String, Op, String, String)>,
 }
 
-fn get_price_from_secret_number(input: isize) -> isize {
-    input % 10
-}
+impl System {
+    fn parse(input: &str) -> Self {
+        let input = input.trim();
 
-fn get_changes(input: &[isize]) -> Vec<isize> {
-    let mut result = vec![];
+        let mut parts = input.split("\n\n");
 
-    for (i, v) in input[1..].iter().enumerate() {
-        result.push(v - input[i]);
-    }
+        let initial_value_input = parts.next().unwrap();
+        let connections_input = parts.next().unwrap();
 
-    result
-}
+        let node_values = initial_value_input
+            .lines()
+            .map(|line| {
+                let line = line.trim();
+                let mut parts = line.split(": ");
+                let node = parts.next().unwrap().to_string();
+                let value = parts.next().unwrap() == "1";
+                (node, value)
+            })
+            .collect();
 
-fn generate_n_prices(input: isize, n: usize) -> Vec<isize> {
-    let secret_numbers = generate_n_secret_numbers(input, n);
-    secret_numbers
-        .into_iter()
-        .map(get_price_from_secret_number)
-        .collect()
-}
+        let mut nodes = HashSet::new();
+        let mut edges = HashSet::new();
 
-fn get_sequences_with_first_price(prices: &[isize], changes: &[isize]) -> Vec<(Vec<isize>, isize)> {
-    let mut seen = HashSet::new();
-    let mut result = vec![];
-
-    for (i, sequence) in changes.windows(4).enumerate() {
-        if seen.contains(sequence) {
-            continue;
+        for line in connections_input.lines() {
+            let line = line.trim();
+            let mut split = line.split(" -> ");
+            let left = split.next().unwrap();
+            let out = split.next().unwrap().to_string();
+            let mut split = left.split(" ");
+            let i1 = split.next().unwrap().to_string();
+            let op = Op::try_from(split.next().unwrap()).unwrap();
+            let i2 = split.next().unwrap().to_string();
+            nodes.insert(out.clone());
+            nodes.insert(i1.clone());
+            nodes.insert(i2.clone());
+            edges.insert((i1, op, i2, out));
         }
 
-        seen.insert(sequence);
-
-        let price = prices[i + 4];
-        result.push((sequence.to_vec(), price));
-    }
-
-    result
-}
-
-fn pick_best_sequence(input: &[Vec<(Vec<isize>, isize)>]) -> (Vec<isize>, isize) {
-    let mut grouped: HashMap<&Vec<isize>, isize> = HashMap::new();
-
-    for sequences in input {
-        for (sequence, price) in sequences {
-            *grouped.entry(sequence).or_default() += price;
+        Self {
+            node_values,
+            nodes,
+            edges,
         }
     }
 
-    let sorted: Vec<_> = grouped
-        .iter()
-        .sorted_by(|(_, a), (_, b)| b.cmp(a))
-        .collect();
+    fn solve_node(&mut self, node: &str) {
+        if *(&self.node_values.contains_key(node)) {
+            return;
+        }
 
-    let first = sorted.first().unwrap();
+        let edges = self.edges.clone();
 
-    ((*first.0).clone(), *first.1)
-}
+        let Some((i1, op, i2, _)) = edges.iter().find(|(_, _, _, x)| x == node) else {
+            panic!("Node {node} does not have an input edge");
+        };
 
-fn find_best_sequence_from_sn(secret_numbers: &[isize]) -> (Vec<isize>, isize) {
-    let prices: Vec<Vec<isize>> = secret_numbers
-        .iter()
-        .map(|x| generate_n_prices(*x, 2000))
-        .collect();
+        if !&self.node_values.contains_key(i1) {
+            self.solve_node(i1);
+        }
 
-    let changes: Vec<_> = prices.iter().map(|prices| get_changes(prices)).collect();
+        if !&self.node_values.contains_key(i2) {
+            self.solve_node(i2);
+        }
 
-    let sequences_for_prices: Vec<_> = prices
-        .iter()
-        .zip(changes)
-        .map(|(prices, changes)| get_sequences_with_first_price(prices, &changes))
-        .collect();
+        let i1v = self.node_values[i1];
+        let i2v = self.node_values[i2];
 
-    pick_best_sequence(&sequences_for_prices)
+        let v = match op {
+            Op::And => i1v && i2v,
+            Op::Or => i1v || i2v,
+            Op::Xor => i1v != i2v,
+        };
+
+        self.node_values.insert(node.to_string(), v);
+    }
+
+    fn solve(&mut self) -> isize {
+        let mut nodes = self.nodes.clone().into_iter().collect_vec();
+
+        nodes.sort();
+
+        let res: Vec<bool> = nodes
+            .into_iter()
+            .filter(|n| n.starts_with("z"))
+            .map(|n| {
+                self.solve_node(&n);
+                self.node_values[&n]
+            })
+            .rev()
+            .collect();
+
+        let res = isize::from_str_radix(
+            &res.into_iter()
+                .map(|v| match v {
+                    true => '1',
+                    false => '0',
+                })
+                .join(""),
+            2,
+        )
+        .unwrap();
+
+        res
+    }
 }
 
 fn main() {
-    let input = fs::read_to_string("./inputs/day22.txt").expect("Failed to read file");
+    let input = fs::read_to_string("./inputs/day24.txt").expect("Failed to read file");
 
-    let starting_numbers: Vec<isize> = input
-        .trim()
-        .lines()
-        .map(|line| -> isize {
-            let line = line.trim();
-            line.parse().unwrap()
-        })
-        .collect();
+    let mut s = System::parse(&input);
 
-    let result: isize = starting_numbers
-        .iter()
-        .map(|sn| generate_nth_secret_number(*sn, 2000))
-        .sum();
+    let result = s.solve();
 
     println!("Result (Part 1): {result}");
-
-    let result = find_best_sequence_from_sn(&starting_numbers);
-
-    println!("Result (Part 2): {}", result.1);
 }
 
 #[cfg(test)]
@@ -144,108 +152,98 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_mix() {
-        assert_eq!(mix(42, 15), 37);
-    }
+    fn test_example_one() {
+        let input = r#"
+x00: 1
+x01: 1
+x02: 1
+y00: 0
+y01: 1
+y02: 0
 
-    #[test]
-    fn test_prune() {
-        assert_eq!(prune(100000000), 16113920);
-    }
+x00 AND y00 -> z00
+x01 XOR y01 -> z01
+x02 OR y02 -> z02
+        "#;
 
-    #[test]
-    fn test_get_price_from_secret_number() {
-        assert_eq!(get_price_from_secret_number(123), 3);
-        assert_eq!(get_price_from_secret_number(15887950), 0);
-        assert_eq!(get_price_from_secret_number(16495136), 6);
-    }
+        let mut s = System::parse(&input);
 
-    #[test]
-    fn test_example_123() {
-        let mut series = vec![123];
-        for _ in 0..9 {
-            series.push(get_next_secret_number(*series.last().unwrap()));
-        }
+        let result = s.solve();
 
-        let prices: Vec<_> = series
+        assert_eq!(
+            s.node_values,
+            [
+                ("x00".to_string(), true),
+                ("x01".to_string(), true),
+                ("x02".to_string(), true),
+                ("y00".to_string(), false),
+                ("y01".to_string(), true),
+                ("y02".to_string(), false),
+                ("z00".to_string(), false),
+                ("z01".to_string(), false),
+                ("z02".to_string(), true),
+            ]
             .into_iter()
-            .map(get_price_from_secret_number)
-            .collect();
-
-        assert_eq!(prices, vec![3, 0, 6, 5, 4, 4, 6, 4, 4, 2]);
-
-        let changes = get_changes(&prices);
-
-        assert_eq!(changes, vec![-3, 6, -1, -1, 0, 2, -2, 0, -2]);
-
-        let sequence = get_sequences_with_first_price(&prices, &changes);
-
-        assert!(sequence.contains(&(vec![-1, -1, 0, 2], 6)));
-    }
-
-    #[test]
-    fn test_generate_nth_secret_number() {
-        assert_eq!(generate_nth_secret_number(1, 2000), 8685429);
-        assert_eq!(generate_nth_secret_number(10, 2000), 4700978);
-        assert_eq!(generate_nth_secret_number(100, 2000), 15273692);
-        assert_eq!(generate_nth_secret_number(2024, 2000), 8667524);
-    }
-
-    #[test]
-    fn test_find_best_sequence() {
-        assert_eq!(
-            find_best_sequence_from_sn(&[1, 2, 3, 2024]),
-            (vec![-2, 1, -1, 3], 23)
+            .collect()
         );
+
+        assert_eq!(result, 4);
     }
 
     #[test]
-    fn test_pick_best_sequence() {
-        assert_eq!(
-            pick_best_sequence(&[
-                vec![(vec![-2, 1, -1, 3], 7)],
-                vec![(vec![-2, 1, -1, 3], 7)],
-                vec![(vec![2, 1, 1, 3], 2)],
-                vec![(vec![-2, 1, -1, 3], 9)],
-            ]),
-            (vec![-2, 1, -1, 3], 23)
-        );
-    }
+    fn test_example_two() {
+        let input = r#"
+x00: 1
+x01: 0
+x02: 1
+x03: 1
+x04: 0
+y00: 1
+y01: 1
+y02: 1
+y03: 1
+y04: 1
 
-    #[test]
-    fn test_get_sequences_with_prices() {
-        let prices = [3, 0, 6, 5, 4, 4, 6, 4, 4, 2];
-        let changes = get_changes(&prices);
+ntg XOR fgs -> mjb
+y02 OR x01 -> tnw
+kwq OR kpj -> z05
+x00 OR x03 -> fst
+tgd XOR rvg -> z01
+vdt OR tnw -> bfw
+bfw AND frj -> z10
+ffh OR nrd -> bqk
+y00 AND y03 -> djm
+y03 OR y00 -> psh
+bqk OR frj -> z08
+tnw OR fst -> frj
+gnj AND tgd -> z11
+bfw XOR mjb -> z00
+x03 OR x00 -> vdt
+gnj AND wpb -> z02
+x04 AND y00 -> kjc
+djm OR pbm -> qhw
+nrd AND vdt -> hwm
+kjc AND fst -> rvg
+y04 OR y02 -> fgs
+y01 AND x02 -> pbm
+ntg OR kjc -> kwq
+psh XOR fgs -> tgd
+qhw XOR tgd -> z09
+pbm OR djm -> kpj
+x03 XOR y03 -> ffh
+x00 XOR y04 -> ntg
+bfw OR bqk -> z06
+nrd XOR fgs -> wpb
+frj XOR qhw -> z04
+bqk OR frj -> z07
+y03 OR x01 -> nrd
+hwm AND bqk -> z03
+tgd XOR rvg -> z12
+tnw OR pbm -> gnj
+        "#;
 
-        assert_eq!(
-            get_sequences_with_first_price(&prices, &changes),
-            vec![
-                (vec![-3, 6, -1, -1], 4),
-                (vec![6, -1, -1, 0], 4),
-                (vec![-1, -1, 0, 2], 6),
-                (vec![-1, 0, 2, -2], 4),
-                (vec![0, 2, -2, 0], 4),
-                (vec![2, -2, 0, -2], 2)
-            ]
-        );
-    }
+        let mut s = System::parse(&input);
 
-    #[test]
-    fn test_calculate_next_number() {
-        let mut secret_number = 123;
-
-        let mut next_10 = vec![];
-        for _ in 0..10 {
-            secret_number = get_next_secret_number(secret_number);
-            next_10.push(secret_number);
-        }
-
-        assert_eq!(
-            next_10,
-            vec![
-                15887950, 16495136, 527345, 704524, 1553684, 12683156, 11100544, 12249484, 7753432,
-                5908254,
-            ]
-        );
+        assert_eq!(s.solve(), 2024);
     }
 }
