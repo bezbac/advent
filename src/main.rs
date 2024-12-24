@@ -59,7 +59,7 @@ impl System {
             let mut split = line.split(" -> ");
             let left = split.next().unwrap();
             let out = split.next().unwrap().to_string();
-            let mut split = left.split(" ");
+            let mut split = left.split(' ');
             let i1 = split.next().unwrap().to_string();
             let op = Op::try_from(split.next().unwrap()).unwrap();
             let i2 = split.next().unwrap().to_string();
@@ -77,7 +77,7 @@ impl System {
     }
 
     fn solve_node(&mut self, node: &str) {
-        if *(&self.node_values.contains_key(node)) {
+        if self.node_values.contains_key(node) {
             return;
         }
 
@@ -114,7 +114,7 @@ impl System {
 
         let res: Vec<bool> = nodes
             .into_iter()
-            .filter(|n| n.starts_with("z"))
+            .filter(|n| n.starts_with('z'))
             .map(|n| {
                 self.solve_node(&n);
                 self.node_values[&n]
@@ -122,18 +122,11 @@ impl System {
             .rev()
             .collect();
 
-        let res = isize::from_str_radix(
-            &res.into_iter()
-                .map(|v| match v {
-                    true => '1',
-                    false => '0',
-                })
-                .join(""),
+        isize::from_str_radix(
+            &res.into_iter().map(|v| if v { '1' } else { '0' }).join(""),
             2,
         )
-        .unwrap();
-
-        res
+        .unwrap()
     }
 }
 
